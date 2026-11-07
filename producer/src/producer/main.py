@@ -4,6 +4,8 @@ import random
 import signal
 import sys
 
+import requests
+
 from .avro_serde import AvroPostSerializer
 from .cursor_store import CursorStore
 from .filters import is_portuguese
@@ -103,7 +105,19 @@ async def run() -> int:
         settings.schema_subject,
         settings.schema_compatibility,
     )
-    serializer.register()
+    for attempt in range(30):
+        try:
+            serializer.register()
+            break
+        except requests.RequestException as exc:
+            logger.warning(
+                "schema_registry_unreachable",
+                extra={"attempt": attempt + 1, "error": str(exc)},
+            )
+            await asyncio.sleep(2)
+    else:
+        logger.error("schema_registry_gave_up")
+        return 1
     publisher = KafkaPublisher(settings, serializer)
     stats = Stats()
 

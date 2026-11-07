@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import time
 
 import pytest
 
@@ -49,6 +50,17 @@ def stack():
             check=False,
         )
     compose("up", "kafka-init")
+    import urllib.request
+
+    deadline = time.time() + 90
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(REGISTRY + "/subjects", timeout=2):
+                break
+        except OSError:
+            time.sleep(2)
+    else:
+        raise AssertionError("schema registry nao respondeu a tempo")
     yield
     compose("down", check=False)
 

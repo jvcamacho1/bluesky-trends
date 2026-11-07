@@ -1,0 +1,83 @@
+name: Dashboard Pages
+
+on:
+  push:
+    branches: [main, "vibe/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Exportar dados e publicar Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: producer/pyproject.toml
+
+      - name: Instalar producer
+        working-directory: producer
+        run: pip install -e ".[dev]"
+
+      - name: Subir Kafka e Schema Registry
+        run: docker compose up -d --build kafka schema-registry
+
+      - name: Criar topicos e produzir dados
+        run: |
+          docker compose up kafka-init
+          docker compose run --rm --no-deps \
+            -e INPUT_MODE=file \
+            -e INPUT_FILE=/fixtures/jetstream_frames.jsonl \
+            -e CURSOR_PATH=/tmp/cursor.json \
+            -e CURSOR_RESUME=false \
+            -e KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+            -e SCHEMA_REGISTRY_URL=http://schema-registry:8081 \
+            producer
+
+      - name: Esperar Schema Registry
+        run: |
+          for i in $(seq 1 45); do
+            curl -fs http://localhost:8081/subjects && break || sleep 2
+          done
+
+      - name: Exportar data.json do topico
+        run: |
+          cd producer
+          python -m producer.export_dashboard \
+            --bootstrap localhost:9092 \
+            --registry http://localhost:8081 \
+            --topic bluesky.posts.pt.v1 \
+            --limit 500 --timeout 60 \
+            --output ../docs/data.json
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload do artefato
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Derrubar stack
+        if: always()
+        run: docker compose down || true

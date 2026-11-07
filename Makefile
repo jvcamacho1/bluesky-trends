@@ -3,7 +3,7 @@ PY ?= python3
 PIP_INSTALL ?= pip install -e "./producer[dev]"
 FIXTURE ?= producer/tests/fixtures/jetstream_frames.jsonl
 
-.PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check test test-unit test-integration lint fmt clean
+.PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check export-dashboard test test-unit test-integration lint fmt clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -37,6 +37,9 @@ consume-dlq: ## Console consumer do topico de dead letters
 
 consume-check: ## Decodifica e imprime mensagens Avro do topico de posts
 	cd producer && $(PY) -m producer.consume_check localhost:9092 http://localhost:8081 bluesky.posts.pt.v1 10
+
+export-dashboard: ## Exporta dados do topico para docs/data.json (dashboard)
+	cd producer && $(PY) -m producer.export_dashboard --output ../docs/data.json
 
 test: test-unit ## Roda lint + unit + integracao
 	$(MAKE) test-integration

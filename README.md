@@ -65,6 +65,19 @@ make lint
 
 O teste de integração não depende do Bluesky: o producer tem um modo `INPUT_MODE=file` que lê um fixture JSONL (`producer/tests/fixtures/jetstream_frames.jsonl`) com os mesmos frames do formato v2. É esse modo que a CI usa.
 
+### Dashboard de validação (GitHub Pages)
+
+Um dashboard estático e minimalista (`docs/index.html`) lê `docs/data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Duas formas de usar:
+
+- **Local, com dados reais**: com o pipeline rodando (`make up`), exporte um snapshot do tópico e abra `docs/index.html` no navegador:
+
+  ```bash
+  make export-dashboard   # consome até 500 mensagens e escreve docs/data.json
+  sensible-browser docs/index.html
+  ```
+
+- **GitHub Pages**: o workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml) sobe Kafka + Schema Registry, produz o fixture, exporta `data.json` e publica em Pages. Requer habilitar Pages com fonte *GitHub Actions* (Settings → Pages). Enquanto o Grafana não existe (Fase 3), é a forma mais rápida de validar a ingestão visualmente.
+
 ### Serviços e orçamento de memória
 
 | Serviço | Imagem | Limite | Heap |
