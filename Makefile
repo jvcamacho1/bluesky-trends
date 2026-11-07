@@ -36,7 +36,7 @@ consume-dlq: ## Console consumer do topico de dead letters
 	$(COMPOSE) exec kafka kafka-console-consumer --bootstrap-server kafka:9092 --topic bluesky.posts.pt.dlq.v1 --from-beginning --max-messages 10
 
 consume-check: ## Decodifica e imprime mensagens Avro do topico de posts
-	cd producer && $(PY) -m producer.consume_check localhost:9092 http://localhost:8081 bluesky.posts.pt.v1 10
+	cd producer && $(PY) -m producer.consume_check localhost:29092 http://localhost:8081 bluesky.posts.pt.v1 10
 
 export-dashboard: ## Exporta dados do topico para docs/data.json (dashboard)
 	cd producer && $(PY) -m producer.export_dashboard --output ../docs/data.json

@@ -86,7 +86,7 @@ Um dashboard estático e minimalista (`docs/index.html`) lê `docs/data.json` e 
 | Schema Registry | `confluentinc/cp-schema-registry:7.7.1` | 512 MB / 0.3 CPU | 256 MB |
 | Producer | build local | 256 MB / 0.5 CPU | — |
 
-Kafka e Schema Registry publicam apenas em `127.0.0.1` (nada exposto à internet). Na VPS (Fase 5) essas portas saem do Compose e o Grafana entra atrás do nginx existente com autenticação.
+Kafka e Schema Registry publicam apenas em `127.0.0.1` (nada exposto à internet); o Kafka expõe um listener `HOST` em `localhost:29092` para ferramentas rodando no host (o listener `PLAINTEXT` interno anuncia `kafka:9092` e só é resolvível dentro do Compose). Na VPS (Fase 5) essas portas saem do Compose e o Grafana entra atrás do nginx existente com autenticação.
 
 ## Decisões (ADRs curtos)
 

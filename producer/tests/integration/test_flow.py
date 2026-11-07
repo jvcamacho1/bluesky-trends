@@ -13,7 +13,7 @@ REPO_ROOT = os.environ.get(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
 )
 FIXTURE = "jetstream_frames.jsonl"
-BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
 REGISTRY = os.environ.get("SCHEMA_REGISTRY_URL", "http://localhost:8081")
 
 

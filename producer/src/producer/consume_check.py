@@ -73,7 +73,7 @@ def consume(
 
 
 def main() -> None:
-    bootstrap = sys.argv[1] if len(sys.argv) > 1 else "localhost:9092"
+    bootstrap = sys.argv[1] if len(sys.argv) > 1 else "localhost:29092"
     registry = sys.argv[2] if len(sys.argv) > 2 else "http://localhost:8081"
     topic = sys.argv[3] if len(sys.argv) > 3 else "bluesky.posts.pt.v1"
     max_messages = int(sys.argv[4]) if len(sys.argv) > 4 else 10
