@@ -1,0 +1,25 @@
+{
+  "type": "record",
+  "name": "PostEvent",
+  "namespace": "bluesky.trends",
+  "doc": "Post em portugues criado na rede Bluesky, extraido do Jetstream v2.",
+  "fields": [
+    {"name": "uri", "type": "string", "doc": "at://did/collection/rkey, identificador unico usado para deduplicacao downstream"},
+    {"name": "did", "type": "string"},
+    {"name": "rkey", "type": "string"},
+    {"name": "event_time", "type": "string", "doc": "createdAt do record (ISO-8601), tempo de evento"},
+    {"name": "ingest_time", "type": "string", "doc": "time do payload Jetstream (ISO-8601), usado para medir latencia"},
+    {"name": "seq", "type": "long", "doc": "sequencia monotona do Jetstream, usada como cursor"},
+    {"name": "text", "type": "string"},
+    {"name": "langs", "type": {"type": "array", "items": "string"}},
+    {"name": "hashtag_entities", "type": ["null", {"type": "array", "items": {
+      "type": "record",
+      "name": "HashtagEntity",
+      "fields": [
+        {"name": "tag", "type": "string"},
+        {"name": "start", "type": ["null", "int"], "default": null},
+        {"name": "end", "type": ["null", "int"], "default": null}
+      ]
+    }}], "default": null}
+  ]
+}
