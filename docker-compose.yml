@@ -42,12 +42,13 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
-    command: |
-      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-        --topic bluesky.posts.pt.v1 --partitions 3 --replication-factor 1 \
+    command:
+      - >-
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists
+        --topic bluesky.posts.pt.v1 --partitions 3 --replication-factor 1
         --config retention.ms=86400000 &&
-      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-        --topic bluesky.posts.pt.dlq.v1 --partitions 1 --replication-factor 1 \
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists
+        --topic bluesky.posts.pt.dlq.v1 --partitions 1 --replication-factor 1
         --config retention.ms=604800000
     deploy:
       resources:
