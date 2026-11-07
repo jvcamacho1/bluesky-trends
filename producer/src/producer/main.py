@@ -178,9 +178,7 @@ async def run() -> int:
     counters = publisher.counters
     logger.info("producer_stopped", extra={**stats.summary(), **counters})
     if stats.published > 0 and counters["delivered"] == 0:
-        logger.error(
-            "no_messages_delivered", extra={"failed": counters["failed"]}
-        )
+        logger.error("no_messages_delivered", extra={"failed": counters["failed"]})
         return 1
     return exit_code
 
