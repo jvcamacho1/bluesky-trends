@@ -60,7 +60,7 @@ jobs:
         run: |
           cd producer
           python -m producer.export_dashboard \
-            --bootstrap localhost:29092 \
+            --bootstrap 127.0.0.1:29092 \
             --registry http://localhost:8081 \
             --topic bluesky.posts.pt.v1 \
             --limit 500 --timeout 60 \

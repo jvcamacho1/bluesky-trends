@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     reconnect_max_backoff_s: float = 60.0
     stats_every_s: float = 30.0
 
-    kafka_bootstrap_servers: str = "localhost:29092"
+    kafka_bootstrap_servers: str = "127.0.0.1:29092"
     kafka_topic: str = "bluesky.posts.pt.v1"
     kafka_dlq_topic: str = "bluesky.posts.pt.dlq.v1"
     kafka_client_id: str = "bluesky-jetstream-producer"

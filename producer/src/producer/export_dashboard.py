@@ -47,7 +47,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Exporta dados do topico Kafka para o dashboard estatico"
     )
-    parser.add_argument("--bootstrap", default="localhost:29092")
+    parser.add_argument("--bootstrap", default="127.0.0.1:29092")
     parser.add_argument("--registry", default="http://localhost:8081")
     parser.add_argument("--topic", default="bluesky.posts.pt.v1")
     parser.add_argument("--limit", type=int, default=500)
