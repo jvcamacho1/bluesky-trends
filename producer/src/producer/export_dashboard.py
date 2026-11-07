@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .consume_check import consume
 
@@ -29,7 +29,7 @@ def build_dashboard(messages: list[dict]) -> dict:
             }
         )
     return {
-        "generated_at": datetime.now(datetime.UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_posts": len(posts),
         "top_hashtags": [
             {"tag": tag, "count": count}
