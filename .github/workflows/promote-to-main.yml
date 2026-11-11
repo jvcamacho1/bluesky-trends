@@ -110,6 +110,14 @@ jobs:
                 core.info(`PR #${outros[0].number} e mais novo; #${pr.number} espera a vez.`);
                 return;
               }
+              // PR em rascunho nao aceita merge: promove a pronto
+              if (pr.draft) {
+                await github.graphql(
+                  `mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }`,
+                  { id: pr.node_id }
+                );
+                core.info(`PR #${pr.number} saiu do rascunho.`);
+              }
               await github.rest.issues.addLabels({
                 owner, repo, issue_number: pr.number, labels: ['auto-merge']
               });
@@ -121,6 +129,10 @@ jobs:
             });
             let merged = null;
             for (const pr of abertos) {
+              if (pr.draft) {
+                core.info(`#${pr.number} ainda e rascunho; nada a fazer.`);
+                continue;
+              }
               if (!pr.labels.some(label => label.name === 'auto-merge')) continue;
               if (!(await ciVerde(pr.head.sha))) {
                 core.warning(`CI de ${pr.head.sha.slice(0, 7)} nao esta verde; sem merge.`);
