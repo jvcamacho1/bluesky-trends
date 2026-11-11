@@ -1,0 +1,215 @@
+name: Promote to main
+
+# Mantem a main sempre com o codigo mais atual.
+#
+# Inspirado no fluxo do orbita (feature -> develop -> release -> main), mas
+# adaptado a este repositorio, que trabalha com branches de trabalho `vibe/**`
+# e sem develop:
+#
+#   1. push numa branch `vibe/**` abre (ou reaproveita) um PR para `main`;
+#   2. quando o CI daquele commit fica verde, o PR recebe o label `auto-merge`;
+#   3. o merge so acontece se o CI passou no MESMO commit que esta no topo da
+#      branch e se nao ha PR aberto mais novo esperando a vez;
+#   4. depois do merge, a branch de trabalho e apagada e as outras branches
+#      `vibe/**` sao avancadas a partir da main, sem force.
+#
+# Nada aqui toca na VPS: quem publica continua sendo o deploy.yml, que so
+# dispara com o CI verde.
+
+on:
+  push:
+    branches:
+      - "vibe/**"
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: promote-to-main
+  cancel-in-progress: false
+
+jobs:
+  abrir-pr:
+    name: Abrir ou atualizar o PR para main
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/vibe/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Abrir PR se ainda nao existir
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.ref.replace('refs/heads/', '');
+            const { owner, repo } = context.repo;
+            const abertos = await github.rest.pulls.list({
+              owner, repo, head: `${owner}:${branch}`, base: 'main', state: 'open'
+            });
+            if (abertos.data.length > 0) {
+              core.info(`PR #${abertos.data[0].number} ja existe para ${branch}.`);
+              return;
+            }
+            const pr = await github.rest.pulls.create({
+              owner, repo, head: branch, base: 'main',
+              title: `Promover ${branch.replace(/^vibe\//, '').replace(/-/g, ' ')}`,
+              body: [
+                'PR criado automaticamente para manter a `main` com o codigo mais atual.',
+                '',
+                'O merge acontece sozinho quando o CI deste commit ficar verde.',
+                'Se o CI falhar, o PR fica aberto e vermelho: nada entra na main.'
+              ].join('\n')
+            });
+            core.info(`PR #${pr.data.number} aberto.`);
+
+  promover:
+    name: Marcar para merge quando o CI ficar verde
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Achar o PR da branch e liberar o merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.payload.workflow_run.head_sha;
+            const branch = context.payload.workflow_run.head_branch;
+
+            if (!branch || !branch.startsWith('vibe/')) {
+              core.info(`CI verde em ${branch}: nada a promover.`);
+              return;
+            }
+
+            const abertos = await github.rest.pulls.list({
+              owner, repo, head: `${owner}:${branch}`, base: 'main', state: 'open'
+            });
+            if (abertos.data.length === 0) {
+              core.info(`Nenhum PR aberto para ${branch}.`);
+              return;
+            }
+            const pr = abertos.data[0];
+
+            const ref = await github.rest.repos.getBranch({ owner, repo, branch });
+            if (ref.data.commit.sha !== sha) {
+              core.warning(
+                `${branch} andou depois do CI (${sha.slice(0, 7)} -> ` +
+                `${ref.data.commit.sha.slice(0, 7)}); esperando o CI do commit novo.`
+              );
+              return;
+            }
+
+            const outros = (await github.paginate(github.rest.pulls.list, {
+              owner, repo, base: 'main', state: 'open', per_page: 100
+            })).filter(outro => outro.number !== pr.number && outro.created_at > pr.created_at);
+            if (outros.length > 0) {
+              core.info(`PR #${outros[0].number} e mais novo; #${pr.number} espera a vez.`);
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner, repo, issue_number: pr.number, labels: ['auto-merge']
+            });
+            core.info(`PR #${pr.number} verde em ${sha.slice(0, 7)}; liberado para merge.`);
+
+  merge:
+    name: Fazer o merge do que esta verde
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge se este commit esta verde
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+
+            const labels = pr.labels.map(label => label.name);
+            if (!labels.includes('auto-merge')) {
+              core.info(`PR #${pr.number} sem auto-merge; fica para revisao humana.`);
+              return;
+            }
+
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 20
+            });
+            const verde = runs.data.workflow_runs.some(run => run.conclusion === 'success');
+            if (!verde) {
+              core.warning(`CI de ${pr.head.sha.slice(0, 7)} nao esta verde; sem merge.`);
+              return;
+            }
+
+            const ref = await github.rest.repos.getBranch({ owner, repo, branch: pr.head.ref });
+            if (ref.data.commit.sha !== pr.head.sha) {
+              core.warning('A branch andou desde o evento; o proximo push resolve.');
+              return;
+            }
+
+            try {
+              await github.rest.pulls.merge({
+                owner, repo, pull_number: pr.number,
+                merge_method: 'squash',
+                commit_title: `${pr.title} (#${pr.number})`
+              });
+              core.info(`PR #${pr.number} entrou na main.`);
+            } catch (error) {
+              core.warning(`Merge de #${pr.number} nao foi possivel: ${error.message}`);
+            }
+
+  sincronizar:
+    name: Limpar a branch e atualizar as outras
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apagar a branch promovida e atualizar as demais
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const head = context.payload.pull_request.head.ref;
+
+            if (head.startsWith('vibe/')) {
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${head}` });
+                core.info(`Branch ${head} apagada.`);
+              } catch (error) {
+                core.warning(`Nao apaguei ${head}: ${error.message}`);
+              }
+            }
+
+            const main = await github.rest.repos.getBranch({ owner, repo, branch: 'main' });
+            const mainSha = main.data.commit.sha;
+            const branches = await github.paginate(github.rest.repos.listBranches, {
+              owner, repo, per_page: 100
+            });
+
+            for (const branch of branches) {
+              if (!branch.name.startsWith('vibe/') || branch.name === head) continue;
+              // so avanca quando a main e ancestral: sem force, para nao
+              // sobrescrever trabalho que ainda nao esta na main
+              const comparacao = await github.rest.repos.compareCommits({
+                owner, repo, base: branch.name, head: mainSha
+              });
+              if (comparacao.data.status !== 'ahead') {
+                core.info(`${branch.name} nao avanca limpo (${comparacao.data.status}); fica como esta.`);
+                continue;
+              }
+              await github.rest.git.updateRef({
+                owner, repo, ref: `heads/${branch.name}`, sha: mainSha, force: false
+              });
+              core.info(`${branch.name} atualizada para ${mainSha.slice(0, 7)}.`);
+            }

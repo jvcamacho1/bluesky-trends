@@ -281,6 +281,17 @@ O Jetstream entrega os rótulos que o próprio autor aplicou ao post em `record.
 └── Makefile
 ```
 
+## Fluxo de branches
+
+A `main` é sempre o código mais atual e sempre verde. O fluxo imita o do orbita (feature → develop → release → main), adaptado para quem trabalha com branches de trabalho `vibe/**` e sem `develop`:
+
+1. Todo trabalho acontece numa branch `vibe/**`. O push abre sozinho um PR para a `main` (`.github/workflows/promote-to-main.yml`).
+2. Quando o CI daquele commit fica verde, o PR recebe o label `auto-merge`.
+3. O merge só acontece se o CI passou no mesmo commit que está no topo da branch e se não há PR aberto mais novo esperando a vez. Conflito ou CI vermelho deixam o PR aberto para revisão humana.
+4. Depois do merge, a branch promovida é apagada e as outras `vibe/**` avançam para a `main` sem `force`, para não sobrescrever trabalho que ainda não entrou.
+
+O `deploy.yml` só roda depois que o CI passa no mesmo commit, e o job `verify` confere a produção antes de dar o deploy como concluído.
+
 ## CI/CD
 
 O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em todo push/PR:
