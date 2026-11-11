@@ -30,10 +30,12 @@ concurrency:
 jobs:
   gate:
     name: Tudo verde antes de tocar na VPS
+    # workflow_dispatch manual so passa se o CI da main estiver verde;
+    # workflow_run so quando foi o CI da main que passou
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
