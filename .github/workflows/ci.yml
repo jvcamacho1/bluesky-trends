@@ -2,11 +2,14 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main", "vibe/**"]
   pull_request:
+    branches: ["main"]
 
+# Um push e o PR dele geram o mesmo teste: o grupo ignora o evento, entao a
+# execucao anterior e cancelada em vez de rodar duas vezes o mesmo commit.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -32,13 +35,11 @@ jobs:
           ruff check src tests
           ruff format --check src tests
 
-      - name: Pytest (unitarios)
+      - name: Unitarios e contrato
         working-directory: producer
-        run: pytest -m "not integration and not contract" -v
-
-      - name: "Pytest (contrato: public.json, privacidade e nginx)"
-        working-directory: producer
-        run: pytest -m contract -v
+        run: |
+          pytest -m "not integration and not contract" -q
+          pytest -m contract -q
 
       - name: "Compose (portas em 127.0.0.1 e orcamento de recursos)"
         run: docker compose config >/dev/null
@@ -66,9 +67,6 @@ jobs:
           REPO_ROOT: ${{ github.workspace }}
         run: pytest -m integration -v
 
-      - name: "De ponta a ponta: fixture -> public.json"
-        working-directory: producer
-        run: pytest -m contract -v
 
       - name: Logs em caso de falha
         if: failure()
