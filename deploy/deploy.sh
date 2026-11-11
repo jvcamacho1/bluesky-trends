@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Deploy do bluesky-trends na VPS compartilhada: sincroniza o codigo e sobe a
-# stack no Docker rootless do usuario deploy. Roda sem privilegio de root.
+# stack no Docker rootless do usuario bluesky. Roda sem privilegio de root.
 #
 # Uso local:
-#   deploy/deploy.sh deploy@203.0.113.10 /srv/bluesky
-#   SSH_PORT=2222 deploy/deploy.sh deploy@203.0.113.10
+#   deploy/deploy.sh bluesky@203.0.113.10 /srv/bluesky
+#   SSH_PORT=2222 deploy/deploy.sh bluesky@203.0.113.10
 #
 # Variaveis de ambiente:
 #   SSH_PORT   porta do ssh na VPS (padrao 22)

@@ -77,38 +77,38 @@ Arquivos em `deploy/`:
 | `nginx-grafana.conf` | `grafana.jvcamacho.dev` com `proxy_pass` para `127.0.0.1:3000` e cabeçalhos de WebSocket |
 | `deploy.sh` | rsync do repo para a VPS por ssh (porta em `SSH_PORT`, chave `bluesky`), publica o HTML e sobe a stack no Docker rootless |
 
-O deploy não usa root: o usuário `deploy` opera o Docker rootless e é dono de `/srv/bluesky`. O workflow `.github/workflows/deploy.yml` roda o mesmo `deploy.sh` em push para `main`.
+O deploy não usa root: o usuário `bluesky` opera o Docker rootless e é dono de `/srv/bluesky`. O workflow `.github/workflows/deploy.yml` roda o mesmo `deploy.sh` em push para `main`.
 
 ## Instalação na VPS (uma vez, pelo dono da máquina, como root)
 
 A VPS é compartilhada: já hospeda outro site em produção na porta 8000, com nginx e certificados no host. Nada abaixo toca nesse site. O projeto ainda **não** está em produção; estes passos são o que falta.
 
-1. **Usuário de deploy, sem sudo.** Crie `deploy`, sem grupo `sudo`, e coloque a chave pública `bluesky` em `authorized_keys`:
+1. **Usuário de deploy, sem sudo.** A conta é `bluesky`, sem grupo `sudo`, com a chave pública `bluesky` em `authorized_keys`. Se ainda não existir:
 
    ```bash
-   adduser --disabled-password --gecos "" deploy
-   install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+   adduser --disabled-password --gecos "" bluesky
+   install -d -m 700 -o bluesky -g bluesky /home/bluesky/.ssh
    # cole a linha de ~/.ssh/bluesky.pub:
-   install -m 600 -o deploy -g deploy /dev/stdin /home/deploy/.ssh/authorized_keys
+   install -m 600 -o bluesky -g bluesky /dev/stdin /home/bluesky/.ssh/authorized_keys
    ```
 
-2. **Diretório do projeto.** `/srv/bluesky` pertence a `deploy`:
+2. **Diretório do projeto.** `/srv/bluesky` pertence a `bluesky`:
 
    ```bash
-   install -d -m 755 -o deploy -g deploy /srv/bluesky
-   install -d -m 755 -o deploy -g deploy /srv/bluesky/public
+   install -d -m 755 -o bluesky -g bluesky /srv/bluesky
+   install -d -m 755 -o bluesky -g bluesky /srv/bluesky/public
    ```
 
-3. **Docker rootless.** Instale o Docker Engine com o extra rootless e configure pelo usuário `deploy`:
+3. **Docker rootless.** Instale o Docker Engine com o extra rootless e configure pelo usuário `bluesky`:
 
    ```bash
-   apt-get install -y docker.io uidmap dbus-user-session
-   # ou: curl -fsSL https://get.docker.com/rootless | sh
-   sudo -iu deploy dockerd-rootless-setuptool.sh install
-   sudo loginctl enable-linger deploy
+   apt-get install -y uidmap slirp4netns fuse-overlayfs dbus-user-session
+   sudo -iu bluesky sh -c 'curl -fsSL https://get.docker.com/rootless | sh'
+   sudo -iu bluesky dockerd-rootless-setuptool.sh install
+   sudo loginctl enable-linger bluesky
    ```
 
-   No `~/.bashrc` do `deploy`, exporte `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` e `PATH=$HOME/bin:$PATH`.
+   No `~/.bashrc` do `bluesky`, exporte `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` e `PATH=$HOME/bin:$PATH`.
 
 4. **Delegação de cgroup v2.** Sem isso os limites de memória e CPU do Compose não valem. Confirme `systemd.unified_cgroup_hierarchy=1` e delegue os controladores:
 
@@ -144,7 +144,7 @@ A VPS é compartilhada: já hospeda outro site em produção na porta 8000, com 
 8. **Primeiro deploy.** Da sua máquina, com a chave `bluesky`:
 
    ```bash
-   SSH_PORT=<porta> make deploy HOST=deploy@SEU_IP
+   SSH_PORT=<porta> make deploy HOST=bluesky@SEU_IP
    ```
 
    Em até 6 minutos o `dashboard-export` escreve `/srv/bluesky/public/data.json` e o subdomínio passa a mostrar dados.

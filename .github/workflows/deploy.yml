@@ -3,7 +3,7 @@ name: Deploy VPS
 # Substitui o antigo pages.yml: o dashboard agora vive na VPS, atras do nginx.
 # Secrets necessarios no repositorio:
 #   VPS_HOST         host ou IP da VPS
-#   VPS_USER         usuario de deploy (ex.: deploy)
+#   VPS_USER         usuario de deploy (bluesky)
 #   VPS_SSH_KEY      conteudo da chave privada ~/.ssh/bluesky
 #   VPS_KNOWN_HOSTS  saida de `ssh-keyscan -H <host>` (opcional, mas recomendado)
 #   VPS_PATH         caminho remoto (padrao /srv/bluesky)
