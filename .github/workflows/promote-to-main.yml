@@ -129,14 +129,25 @@ jobs:
             });
             let merged = null;
             for (const pr of abertos) {
-              if (pr.draft) {
-                core.info(`#${pr.number} ainda e rascunho; nada a fazer.`);
-                continue;
-              }
-              if (!pr.labels.some(label => label.name === 'auto-merge')) continue;
               if (!(await ciVerde(pr.head.sha))) {
                 core.warning(`CI de ${pr.head.sha.slice(0, 7)} nao esta verde; sem merge.`);
                 continue;
+              }
+              // rascunho nao aceita merge: sai do rascunho e o proximo ciclo
+              // (ou o proprio push) cuida do merge
+              if (pr.draft) {
+                await github.graphql(
+                  `mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }`,
+                  { id: pr.node_id }
+                );
+                core.info(`#${pr.number} saiu do rascunho; merge no proximo ciclo.`);
+                continue;
+              }
+              if (!pr.labels.some(label => label.name === 'auto-merge')) {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: pr.number, labels: ['auto-merge']
+                });
+                core.info(`#${pr.number} marcado para merge.`);
               }
               const ref = await github.rest.repos.getBranch({ owner, repo, branch: pr.head.ref });
               if (ref.data.commit.sha !== pr.head.sha) {
