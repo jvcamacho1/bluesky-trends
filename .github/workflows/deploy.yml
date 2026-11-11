@@ -87,6 +87,25 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Conferir os secrets do ambiente vps
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          faltando=""
+          [ -n "$VPS_HOST" ] || faltando="$faltando VPS_HOST"
+          [ -n "$VPS_USER" ] || faltando="$faltando VPS_USER"
+          [ -n "$VPS_PORT" ] || faltando="$faltando VPS_PORT"
+          [ -n "$VPS_SSH_KEY" ] || faltando="$faltando VPS_SSH_KEY"
+          if [ -n "$faltando" ]; then
+            echo "::error::Secrets ausentes no ambiente vps:$faltando"
+            echo "Cadastre em Settings > Environments > vps > Environment secrets."
+            exit 1
+          fi
+          echo "Secrets presentes."
+
       - name: Preparar chave ssh
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
