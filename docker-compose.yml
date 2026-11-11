@@ -107,3 +107,32 @@ services:
         limits:
           memory: 256m
           cpus: "0.5"
+
+  # Exporta o data.json do dashboard a cada 5 minutos, direto do topico.
+  # Substitui o antigo systemd timer: roda na mesma imagem do producer, sem
+  # precisar de Python nem root no host. ./public e o que o nginx serve.
+  dashboard-export:
+    build:
+      context: .
+      dockerfile: producer/Dockerfile
+    container_name: bluesky-trends-dashboard-export
+    restart: unless-stopped
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
+    command: ["python", "-m", "producer.dashboard_export"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_TOPIC: bluesky.posts.pt.v1
+      DASHBOARD_OUTPUT: /public/data.json
+      EXPORT_INTERVAL_S: "300"
+    volumes:
+      - ./public:/public
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.2"

@@ -10,7 +10,7 @@ Projeto de portfólio de engenharia de dados: **Kafka (KRaft) + Schema Registry 
 - [ ] **Fase 2** — Job Flink com janelas de trending (HOP 5 min / slide 1 min) e volume por minuto
 - [ ] **Fase 3** — Sink ClickHouse + painel Grafana
 - [ ] **Fase 4** — Detecção de picos + métricas Prometheus + alertas
-- [ ] **Fase 5** — Deploy na VPS (nginx + autenticação, health checks, CI/CD de deploy) — o dashboard já roda na VPS, ver `deploy/`
+- [ ] **Fase 5** — Deploy na VPS (nginx + autenticação, health checks, CI/CD de deploy) — o dashboard e o CI/CD de deploy já estão prontos em `deploy/`, falta executar a instalação da VPS
 
 ## Arquitetura (alvo completo)
 
@@ -67,42 +67,87 @@ O teste de integração não depende do Bluesky: o producer tem um modo `INPUT_M
 
 ### Dashboard de validação (servido pela VPS)
 
-Um dashboard estático e minimalista (`docs/index.html`) lê `data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Ele não usa mais o GitHub Pages: o `docs/index.html` é copiado para `/srv/bluesky/public/` e servido pelo nginx da VPS em `/trends/`, protegido por basic auth. O `data.json` é gerado por um systemd timer a cada 5 minutos, lendo o Kafka que já roda na máquina.
+Um dashboard estático e minimalista (`docs/index.html`) lê `data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Ele é servido pelo nginx do host em **https://trends.jvcamacho.dev/** (raiz do subdomínio, com basic auth). O `data.json` é escrito a cada 5 minutos pelo serviço `dashboard-export` do Compose, que lê o Kafka da própria stack e troca o arquivo de forma atômica (`data.json.tmp` → `mv`).
 
-Arquivos de deploy em `deploy/`:
+Arquivos em `deploy/`:
 
 | Arquivo | O que faz |
 |---|---|
-| `bluesky-dashboard.service` | oneshot que roda `python -m producer.export_dashboard` como usuário `deploy` e troca o `data.json` de forma atômica |
-| `bluesky-dashboard.timer` | dispara o export no boot (2 min) e a cada 5 min |
-| `nginx-bluesky-trends.conf` | `location /trends/` com alias para `/srv/bluesky/public/`, basic auth e `no-store` no `data.json` |
-| `deploy.sh` | rsync do repo para a VPS por ssh (chave `bluesky`), publica o HTML e sobe a stack |
-| `../.github/workflows/deploy.yml` | mesma coisa, pela CI, em push para `main` |
+| `nginx-bluesky-trends.conf` | `trends.jvcamacho.dev` na raiz, basic auth, `no-store` no `data.json`, 301 de `/trends/` para `/` |
+| `nginx-grafana.conf` | `grafana.jvcamacho.dev` com `proxy_pass` para `127.0.0.1:3000` e cabeçalhos de WebSocket |
+| `deploy.sh` | rsync do repo para a VPS por ssh (porta em `SSH_PORT`, chave `bluesky`), publica o HTML e sobe a stack no Docker rootless |
 
-Instalação na VPS, uma vez:
+O deploy não usa root: o usuário `deploy` opera o Docker rootless e é dono de `/srv/bluesky`. O workflow `.github/workflows/deploy.yml` roda o mesmo `deploy.sh` em push para `main`.
 
-```bash
-sudo install -d -o deploy -g deploy -m 755 /srv/bluesky/public
-sudo install -m 644 deploy/bluesky-dashboard.service /etc/systemd/system/
-sudo install -m 644 deploy/bluesky-dashboard.timer   /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now bluesky-dashboard.timer
+## Instalação na VPS (uma vez, pelo dono da máquina, como root)
 
-sudo install -m 644 deploy/nginx-bluesky-trends.conf /etc/nginx/sites-available/bluesky-trends
-sudo ln -sf /etc/nginx/sites-available/bluesky-trends /etc/nginx/sites-enabled/bluesky-trends
-sudo htpasswd -c /etc/nginx/.htpasswd-trends <usuario>
-sudo nginx -t && sudo systemctl reload nginx
-```
+A VPS é compartilhada: já hospeda outro site em produção na porta 8000, com nginx e certificados no host. Nada abaixo toca nesse site. O projeto ainda **não** está em produção; estes passos são o que falta.
 
-Deploy pela máquina local, usando a chave `~/.ssh/bluesky`:
+1. **Usuário de deploy, sem sudo.** Crie `deploy`, sem grupo `sudo`, e coloque a chave pública `bluesky` em `authorized_keys`:
 
-```bash
-make deploy HOST=deploy@SEU_IP
-```
+   ```bash
+   adduser --disabled-password --gecos "" deploy
+   install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+   # cole a linha de ~/.ssh/bluesky.pub:
+   install -m 600 -o deploy -g deploy /dev/stdin /home/deploy/.ssh/authorized_keys
+   ```
 
-Pela CI, configure os secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (conteúdo de `~/.ssh/bluesky`) e, de preferência, `VPS_KNOWN_HOSTS` (`ssh-keyscan -H SEU_IP`). O `VPS_PATH` é opcional e vale `/srv/bluesky`.
+2. **Diretório do projeto.** `/srv/bluesky` pertence a `deploy`:
 
-Para ver o dashboard localmente sem VPS, `make export-dashboard` escreve `docs/data.json` e basta abrir `docs/index.html`.
+   ```bash
+   install -d -m 755 -o deploy -g deploy /srv/bluesky
+   install -d -m 755 -o deploy -g deploy /srv/bluesky/public
+   ```
+
+3. **Docker rootless.** Instale o Docker Engine com o extra rootless e configure pelo usuário `deploy`:
+
+   ```bash
+   apt-get install -y docker.io uidmap dbus-user-session
+   # ou: curl -fsSL https://get.docker.com/rootless | sh
+   sudo -iu deploy dockerd-rootless-setuptool.sh install
+   sudo loginctl enable-linger deploy
+   ```
+
+   No `~/.bashrc` do `deploy`, exporte `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` e `PATH=$HOME/bin:$PATH`.
+
+4. **Delegação de cgroup v2.** Sem isso os limites de memória e CPU do Compose não valem. Confirme `systemd.unified_cgroup_hierarchy=1` e delegue os controladores:
+
+   ```bash
+   mkdir -p /etc/systemd/system/user@.service.d
+   cat >/etc/systemd/system/user@.service.d/delegate.conf <<'EOF'
+   [Service]
+   Delegate=cpu cpuset io memory pids
+   EOF
+   systemctl daemon-reload
+   ```
+
+   O `deploy.sh` confere `docker info --format '{{.CgroupDriver}}'` e falha se não for `systemd`.
+
+5. **Cloudflare.** Na zona `jvcamacho.dev`, crie os registros `trends` e `grafana` apontando para a VPS, com o proxy ligado, e deixe o modo de criptografia em **Full (strict)**. A origem só aceita 80 e 443, vindos da Cloudflare.
+
+6. **nginx e certificados.** Instale os dois arquivos do projeto, crie o htpasswd, emita os certificados e recarregue:
+
+   ```bash
+   install -m 644 deploy/nginx-bluesky-trends.conf /etc/nginx/sites-available/bluesky-trends
+   install -m 644 deploy/nginx-grafana.conf        /etc/nginx/sites-available/bluesky-grafana
+   ln -sf /etc/nginx/sites-available/bluesky-trends /etc/nginx/sites-enabled/bluesky-trends
+   ln -sf /etc/nginx/sites-available/bluesky-grafana /etc/nginx/sites-enabled/bluesky-grafana
+   htpasswd -c /etc/nginx/.htpasswd-trends <usuario>
+   certbot --nginx -d trends.jvcamacho.dev -d grafana.jvcamacho.dev
+   nginx -t && systemctl reload nginx
+   ```
+
+   Só esses dois arquivos são do projeto; não altere a configuração do outro site.
+
+7. **Secrets no GitHub.** No ambiente `vps` do repositório: `VPS_HOST`, `VPS_USER`, `VPS_PORT`, `VPS_SSH_KEY` (conteúdo de `~/.ssh/bluesky`) e `VPS_KNOWN_HOSTS` (`ssh-keyscan -p <porta> -H <host>`). `VPS_PATH` é opcional e vale `/srv/bluesky`.
+
+8. **Primeiro deploy.** Da sua máquina, com a chave `bluesky`:
+
+   ```bash
+   SSH_PORT=<porta> make deploy HOST=deploy@SEU_IP
+   ```
+
+   Em até 6 minutos o `dashboard-export` escreve `/srv/bluesky/public/data.json` e o subdomínio passa a mostrar dados.
 
 ### Serviços e orçamento de memória
 
@@ -111,6 +156,11 @@ Para ver o dashboard localmente sem VPS, `make export-dashboard` escreve `docs/d
 | Kafka (KRaft combined, 1 broker) | `confluentinc/cp-kafka:7.7.1` | 1 GB / 0.5 CPU | 512 MB |
 | Schema Registry | `confluentinc/cp-schema-registry:7.7.1` | 512 MB / 0.3 CPU | 256 MB |
 | Producer | build local | 256 MB / 0.5 CPU | — |
+| Dashboard export | build local (mesma imagem) | 256 MB / 0.2 CPU | — |
+
+Total da stack hoje: **2,5 GB de memória e 1,8 CPU**, dentro do orçamento de 7 GB e 3 CPUs que a VPS compartilhada permite. Todo serviço novo (Flink, ClickHouse, Grafana, Prometheus) nasce com limite de memória e CPU, e heap explícito quando for JVM. O ClickHouse entra com `max_server_memory_usage` abaixo do limite do container e TTL nas tabelas.
+
+Porta publicada pelo Docker ignora o firewall do host, então todo `ports:` do Compose começa com `127.0.0.1:`. O teste `producer/tests/unit/test_compose_ports.py` roda na CI e falha se alguma porta escapar do loopback, se algum serviço ficar sem limite ou se a soma passar do orçamento.
 
 Kafka e Schema Registry publicam apenas em `127.0.0.1` (nada exposto à internet); o Kafka expõe um listener `HOST` em `127.0.0.1:29092` para ferramentas rodando no host (o listener `PLAINTEXT` interno anuncia `kafka:9092` e só é resolvível dentro do Compose). Na VPS (Fase 5) essas portas saem do Compose e o Grafana entra atrás do nginx existente com autenticação.
 
@@ -171,7 +221,7 @@ Todo container nasce com `mem_limit`/`cpus` e heaps explícitos (Kafka 512 MB, R
 │       ├── fixtures/jetstream_frames.jsonl
 │       ├── unit/
 │       └── integration/test_flow.py
-├── deploy/                    # systemd timer, nginx e script de deploy
+├── deploy/                    # nginx (trends e grafana) e script de deploy
 ├── .github/workflows/ci.yml   # ruff + pytest unit + integração com Compose
 ├── .github/workflows/deploy.yml # rsync + docker compose na VPS (chave bluesky)
 └── Makefile
