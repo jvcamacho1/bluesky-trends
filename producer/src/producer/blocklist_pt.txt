@@ -1,0 +1,36 @@
+"""Lista de bloqueio de termos para os agregados publicos.
+
+Um termo por linha, em minusculas. Linhas vazias e comentarios (#) sao
+ignorados. O filtro e por substring: se o termo aparece dentro de uma palavra
+da hashtag ou do texto, o post inteiro fica fora de todos os agregados
+publicos. A lista e versionada de proposito, para a exclusao ser auditavel.
+"""
+
+# portugues
+pornografia
+porno
+putaria
+nudes
+nude
+pack de nudes
+onlyfans
+privacy
+xvideos
+xhamster
+hentai
+xxx
+sexo explicito
+transar
+gozar
+
+# ingles (aparece muito em posts pt-BR)
+porn
+nude
+nudes
+nsfw
+onlyfans
+explicit
+fuck
+fucking
+blowjob
+cumshot

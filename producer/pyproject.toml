@@ -1,0 +1,49 @@
+[project]
+name = "bluesky-trends-producer"
+version = "0.1.0"
+description = "Producer Bluesky Jetstream v2 -> Kafka (Avro + Schema Registry)"
+requires-python = ">=3.12"
+dependencies = [
+    "websockets>=13.0",
+    "confluent-kafka>=2.6.0",
+    "avro>=1.11.0",
+    "requests>=2.32.0",
+    "pydantic-settings>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyyaml>=6.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# listas versionadas que o servico le em tempo de execucao
+[tool.setuptools.package-data]
+producer = ["*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: testes que exigem Kafka/Schema Registry via Docker Compose",
+    "contract: testes de contrato e de configuracao, sem Docker",
+]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/producer/export_dashboard.py" = ["UP017"]

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "vibe/**"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Um push e o PR dele geram o mesmo teste: o grupo ignora o evento, entao a
+# execucao anterior e cancelada em vez de rodar duas vezes o mesmo commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  lint-unit:
+    name: Lint e testes unitarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: producer/pyproject.toml
+
+      - name: Instalar dependencias
+        working-directory: producer
+        run: pip install -e ".[dev]"
+
+      - name: Ruff lint
+        working-directory: producer
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+
+      - name: Unitarios e contrato
+        working-directory: producer
+        run: |
+          pytest -m "not integration and not contract" -q
+          pytest -m contract -q
+
+      - name: "Compose (portas em 127.0.0.1 e orcamento de recursos)"
+        run: docker compose config >/dev/null
+
+  integration:
+    name: Teste de integracao (Kafka + Schema Registry)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: producer/pyproject.toml
+
+      - name: Instalar dependencias
+        working-directory: producer
+        run: pip install -e ".[dev]"
+
+      - name: Pytest (integracao)
+        working-directory: producer
+        env:
+          REPO_ROOT: ${{ github.workspace }}
+        run: pytest -m integration -v
+
+
+      - name: Logs em caso de falha
+        if: failure()
+        run: |
+          docker compose logs --tail=200 kafka schema-registry || true
