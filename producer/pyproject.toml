@@ -25,6 +25,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# listas versionadas que o servico le em tempo de execucao
+[tool.setuptools.package-data]
+producer = ["*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
