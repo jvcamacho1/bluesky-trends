@@ -2,8 +2,10 @@ COMPOSE ?= docker compose
 PY ?= python3
 PIP_INSTALL ?= pip install -e "./producer[dev]"
 FIXTURE ?= producer/tests/fixtures/jetstream_frames.jsonl
+DASHBOARD_DIR ?= /srv/bluesky/public
+REMOTE_PATH ?= /srv/bluesky
 
-.PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check export-dashboard test test-unit test-integration lint fmt clean
+.PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check export-dashboard dashboard-deploy deploy test test-unit test-integration lint fmt clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -40,6 +42,15 @@ consume-check: ## Decodifica e imprime mensagens Avro do topico de posts
 
 export-dashboard: ## Exporta dados do topico para docs/data.json (dashboard)
 	cd producer && $(PY) -m producer.export_dashboard --output ../docs/data.json
+
+dashboard-deploy: ## Publica o dashboard estatico em /srv/bluesky/public (na VPS)
+	install -d -m 755 $(DASHBOARD_DIR)
+	install -m 644 docs/index.html $(DASHBOARD_DIR)/index.html
+	$(MAKE) export-dashboard
+	install -m 644 docs/data.json $(DASHBOARD_DIR)/data.json
+
+deploy: ## Sincroniza e sobe a stack na VPS (HOST=deploy@ip)
+	./deploy/deploy.sh $(HOST) $(REMOTE_PATH)
 
 test: test-unit ## Roda lint + unit + integracao
 	$(MAKE) test-integration

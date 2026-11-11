@@ -1,0 +1,18 @@
+# Roda o export do dashboard no boot e a cada 5 minutos.
+#
+# Ver o estado:  systemctl list-timers bluesky-dashboard.timer
+# Rodar agora:   systemctl start bluesky-dashboard.service
+# Logs:          journalctl -u bluesky-dashboard.service -n 50
+[Unit]
+Description=bluesky-trends - timer do dashboard (5 min)
+Documentation=https://github.com/jvcamacho1/bluesky-trends
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=bluesky-dashboard.service
+
+[Install]
+WantedBy=timers.target

@@ -10,7 +10,7 @@ Projeto de portfólio de engenharia de dados: **Kafka (KRaft) + Schema Registry 
 - [ ] **Fase 2** — Job Flink com janelas de trending (HOP 5 min / slide 1 min) e volume por minuto
 - [ ] **Fase 3** — Sink ClickHouse + painel Grafana
 - [ ] **Fase 4** — Detecção de picos + métricas Prometheus + alertas
-- [ ] **Fase 5** — Deploy na VPS (nginx + autenticação, health checks, CI/CD de deploy)
+- [ ] **Fase 5** — Deploy na VPS (nginx + autenticação, health checks, CI/CD de deploy) — o dashboard já roda na VPS, ver `deploy/`
 
 ## Arquitetura (alvo completo)
 
@@ -65,18 +65,44 @@ make lint
 
 O teste de integração não depende do Bluesky: o producer tem um modo `INPUT_MODE=file` que lê um fixture JSONL (`producer/tests/fixtures/jetstream_frames.jsonl`) com os mesmos frames do formato v2. É esse modo que a CI usa.
 
-### Dashboard de validação (GitHub Pages)
+### Dashboard de validação (servido pela VPS)
 
-Um dashboard estático e minimalista (`docs/index.html`) lê `docs/data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Duas formas de usar:
+Um dashboard estático e minimalista (`docs/index.html`) lê `data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Ele não usa mais o GitHub Pages: o `docs/index.html` é copiado para `/srv/bluesky/public/` e servido pelo nginx da VPS em `/trends/`, protegido por basic auth. O `data.json` é gerado por um systemd timer a cada 5 minutos, lendo o Kafka que já roda na máquina.
 
-- **Local, com dados reais**: com o pipeline rodando (`make up`), exporte um snapshot do tópico e abra `docs/index.html` no navegador:
+Arquivos de deploy em `deploy/`:
 
-  ```bash
-  make export-dashboard   # consome até 500 mensagens e escreve docs/data.json
-  sensible-browser docs/index.html
-  ```
+| Arquivo | O que faz |
+|---|---|
+| `bluesky-dashboard.service` | oneshot que roda `python -m producer.export_dashboard` como usuário `deploy` e troca o `data.json` de forma atômica |
+| `bluesky-dashboard.timer` | dispara o export no boot (2 min) e a cada 5 min |
+| `nginx-bluesky-trends.conf` | `location /trends/` com alias para `/srv/bluesky/public/`, basic auth e `no-store` no `data.json` |
+| `deploy.sh` | rsync do repo para a VPS por ssh (chave `bluesky`), publica o HTML e sobe a stack |
+| `../.github/workflows/deploy.yml` | mesma coisa, pela CI, em push para `main` |
 
-- **GitHub Pages**: o workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml) sobe Kafka + Schema Registry, produz o fixture, exporta `data.json` e publica em Pages. Requer habilitar Pages com fonte *GitHub Actions* (Settings → Pages). Enquanto o Grafana não existe (Fase 3), é a forma mais rápida de validar a ingestão visualmente.
+Instalação na VPS, uma vez:
+
+```bash
+sudo install -d -o deploy -g deploy -m 755 /srv/bluesky/public
+sudo install -m 644 deploy/bluesky-dashboard.service /etc/systemd/system/
+sudo install -m 644 deploy/bluesky-dashboard.timer   /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bluesky-dashboard.timer
+
+sudo install -m 644 deploy/nginx-bluesky-trends.conf /etc/nginx/sites-available/bluesky-trends
+sudo ln -sf /etc/nginx/sites-available/bluesky-trends /etc/nginx/sites-enabled/bluesky-trends
+sudo htpasswd -c /etc/nginx/.htpasswd-trends <usuario>
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Deploy pela máquina local, usando a chave `~/.ssh/bluesky`:
+
+```bash
+make deploy HOST=deploy@SEU_IP
+```
+
+Pela CI, configure os secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (conteúdo de `~/.ssh/bluesky`) e, de preferência, `VPS_KNOWN_HOSTS` (`ssh-keyscan -H SEU_IP`). O `VPS_PATH` é opcional e vale `/srv/bluesky`.
+
+Para ver o dashboard localmente sem VPS, `make export-dashboard` escreve `docs/data.json` e basta abrir `docs/index.html`.
 
 ### Serviços e orçamento de memória
 
@@ -145,7 +171,9 @@ Todo container nasce com `mem_limit`/`cpus` e heaps explícitos (Kafka 512 MB, R
 │       ├── fixtures/jetstream_frames.jsonl
 │       ├── unit/
 │       └── integration/test_flow.py
+├── deploy/                    # systemd timer, nginx e script de deploy
 ├── .github/workflows/ci.yml   # ruff + pytest unit + integração com Compose
+├── .github/workflows/deploy.yml # rsync + docker compose na VPS (chave bluesky)
 └── Makefile
 ```
 

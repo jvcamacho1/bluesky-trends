@@ -1,0 +1,38 @@
+# Exporta um snapshot do topico Kafka para o dashboard estatico servido pelo nginx.
+#
+# Instalacao (na VPS, como root):
+#   install -m 644 deploy/bluesky-dashboard.service /etc/systemd/system/
+#   install -m 644 deploy/bluesky-dashboard.timer   /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now bluesky-dashboard.timer
+#
+# O usuario `deploy` precisa do producer instalado em /srv/bluesky/producer
+# (pip install -e "/srv/bluesky/producer[dev]") e escrever em /srv/bluesky/public.
+[Unit]
+Description=bluesky-trends - exporta data.json do topico Kafka para o dashboard
+Documentation=https://github.com/jvcamacho1/bluesky-trends
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/bluesky/producer
+Environment=PYTHONUNBUFFERED=1
+Environment=KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:29092
+Environment=SCHEMA_REGISTRY_URL=http://127.0.0.1:8081
+Environment=DASHBOARD_DIR=/srv/bluesky/public
+ExecStart=/bin/sh -c 'python3 -m producer.export_dashboard \
+  --bootstrap "$KAFKA_BOOTSTRAP_SERVERS" \
+  --registry "$SCHEMA_REGISTRY_URL" \
+  --topic bluesky.posts.pt.v1 \
+  --limit 500 --timeout 60 \
+  --output "$DASHBOARD_DIR/data.json.tmp" \
+  && mv -f "$DASHBOARD_DIR/data.json.tmp" "$DASHBOARD_DIR/data.json"'
+TimeoutStartSec=180
+Nice=10
+# nada de rede de entrada, so a saida para o Kafka local
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/srv/bluesky/public
