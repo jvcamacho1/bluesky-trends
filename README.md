@@ -65,6 +65,50 @@ make lint
 
 O teste de integração não depende do Bluesky: o producer tem um modo `INPUT_MODE=file` que lê um fixture JSONL (`producer/tests/fixtures/jetstream_frames.jsonl`) com os mesmos frames do formato v2. É esse modo que a CI usa.
 
+### Painel público
+
+A raiz de https://blueskytrends.jvcamacho.dev/ é pública, sem senha: mostra o que o Bluesky em português está falando agora, o volume de 24 horas e como o pipeline funciona. O painel de validação com posts brutos saiu da raiz e vive em `/interno/`, atrás de basic auth.
+
+| Rota | Conteúdo | Acesso |
+|---|---|---|
+| `/` | `public/index.html` | aberto, `Cache-Control: public, max-age=300` |
+| `/public.json` | agregados | aberto, `Cache-Control: public, max-age=30` |
+| `/interno/` | painel de validação e o `data.json` com posts brutos | senha |
+
+- O `data.json` fica em `/srv/bluesky/private/`, nunca em `public/`.
+- `/trends/` responde 301 para `/`.
+- O navegador só lê arquivos estáticos: não existe consulta ao banco exposta.
+
+#### Contrato do `public.json`
+
+```json
+{
+  "generated_at": "2026-11-11T19:48:27Z",
+  "kpis": {"posts_per_minute": 27, "posts_24h": 41380, "authors_1h": 1204, "latency_p95_ms": 1800},
+  "trending": {"ranking": "authors", "items": [
+    {"term": "exemplo", "kind": "hashtag", "authors": 812, "posts": 1930, "ratio": null, "spark": [2, 2, 3, 3, 4, 6, 9, 14, 22, 30, 28, 25]}
+  ]},
+  "volume_24h": [{"t": "2026-11-10T19:50:00Z", "posts_per_minute": 24}],
+  "spikes": [],
+  "week_heatmap": null,
+  "pipeline": {"uptime_s": null, "events_per_s": null, "lag": null, "dlq_ratio": null}
+}
+```
+
+- `volume_24h` tem 288 pontos (um por balde de 5 minutos); `trending.items` tem até 10 itens com `spark` de 12 baldes.
+- `ranking` é `authors` enquanto não há histórico no ClickHouse; com 3 dias ou mais, vira `growth` e `ratio` passa a ser `(autores na última hora + 5) / (média da mesma hora nos últimos 7 dias + 5)`.
+- `spikes` e `week_heatmap` só existem nas fases 3 e 4. Campo sem dado vale `null` ou lista vazia, e a página esconde o bloco.
+- Todos os horários são UTC; a página converte para o horário de Brasília.
+
+#### Regras de conteúdo
+
+1. **Só agregados.** O arquivo público nunca contém texto de post, `did`, `uri` nem `rkey`. O `did` só é usado em memória, para contar autores distintos.
+2. **Conteúdo adulto fica fora.** Um post é descartado de todos os agregados se o autor o marcou com rótulo próprio (`porn`, `sexual`, `nudity`, `graphic-media`) ou se alguma hashtag ou palavra dele está em `producer/src/producer/blocklist_pt.txt`.
+3. **Mínimo de autores.** Um termo só aparece com pelo menos 10 autores distintos na janela (`PUBLIC_MIN_AUTHORS`).
+4. **Contar pessoas, não posts.** Cada autor conta uma vez por termo por janela, o que tira robôs do topo.
+
+O serviço `public-export` do Compose mantém as contagens em memória, em baldes de 5 minutos das últimas 24 horas. Ao iniciar, relê o tópico uma vez para se aquecer e depois só consome o que chega; a cada 60 segundos grava `public.json.tmp` e troca por `mv`.
+
 ### Dashboard de validação (servido pela VPS)
 
 Um dashboard estático e minimalista (`docs/index.html`) lê `data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Ele é servido pelo nginx do host em **https://blueskytrends.jvcamacho.dev/** (raiz do subdomínio, com basic auth). O `data.json` é escrito a cada 5 minutos pelo serviço `dashboard-export` do Compose, que lê o Kafka da própria stack e troca o arquivo de forma atômica (`data.json.tmp` → `mv`).
@@ -198,10 +242,16 @@ Escolhemos a linha 1.20 (LTS) em vez da 2.x: os conectores Kafka/Avro/Schema Reg
 ### ADR-011 — Fases com orçamento de memória desde o dia 1
 Todo container nasce com `mem_limit`/`cpus` e heaps explícitos (Kafka 512 MB, Registry 256 MB), mesmo em desenvolvimento. O orçamento total do pipeline é ~7 GB numa VPS compartilhada com outro site em produção; os limites garantem que o pipeline nunca dispute recursos com ele.
 
+### ADR-012 — Rótulo próprio no schema, para excluir conteúdo adulto
+
+O Jetstream entrega os rótulos que o próprio autor aplicou ao post em `record.labels.values[].val`. Acrescentamos o campo opcional `self_labels` (`["null", {"type": "array", "items": "string"}]`, `default: null`) ao `post_event_v1.avsc`: é uma evolução **BACKWARD**, exatamente o caminho previsto na ADR-004, e serve de demonstração prática de que o contrato evolui sem quebrar consumidores. Post com `porn`, `sexual`, `nudity` ou `graphic-media` sai de todos os agregados públicos. **Trade-off:** dependemos do autor marcar o próprio post; o que ele não marca entra, e por isso a lista de bloqueio de termos existe como segunda barreira.
+
 ## Estrutura
 
 ```
 ├── docker-compose.yml        # Kafka KRaft, Schema Registry, kafka-init, producer
+├── docs/public.html           # painel publico (raiz do subdominio)
+├── docs/index.html            # painel de validacao (/interno/)
 ├── schemas/post_event_v1.avsc
 ├── producer/
 │   ├── Dockerfile
@@ -215,6 +265,11 @@ Todo container nasce com `mem_limit`/`cpus` e heaps explícitos (Kafka 512 MB, R
 │   │   ├── kafka_producer.py  # producer idempotente + DLQ
 │   │   ├── cursor_store.py    # persistência atômica do cursor (seq)
 │   │   ├── consume_check.py   # CLI p/ consumir e decodificar (debug)
+│   │   ├── public_export.py   # servico public-export: agregados -> public.json
+│   │   ├── public_aggregator.py# baldes de 5 min, 24 h, minimo de autores
+│   │   ├── public_terms.py    # tokenizacao e filtro de conteudo
+│   │   ├── blocklist_pt.txt   # termos que excluem o post dos agregados
+│   │   ├── stopwords_pt.txt   # palavras vazias do portugues
 │   │   └── settings.py        # config via env
 │   └── tests/
 │       ├── fixtures/jetstream_frames.jsonl

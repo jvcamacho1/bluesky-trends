@@ -34,7 +34,14 @@ jobs:
 
       - name: Pytest (unitarios)
         working-directory: producer
-        run: pytest -m "not integration" -v
+        run: pytest -m "not integration and not contract" -v
+
+      - name: "Pytest (contrato: public.json, privacidade e nginx)"
+        working-directory: producer
+        run: pytest -m contract -v
+
+      - name: "Compose (portas em 127.0.0.1 e orcamento de recursos)"
+        run: docker compose config >/dev/null
 
   integration:
     name: Teste de integracao (Kafka + Schema Registry)
@@ -58,6 +65,10 @@ jobs:
         env:
           REPO_ROOT: ${{ github.workspace }}
         run: pytest -m integration -v
+
+      - name: "De ponta a ponta: fixture -> public.json"
+        working-directory: producer
+        run: pytest -m contract -v
 
       - name: Logs em caso de falha
         if: failure()

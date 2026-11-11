@@ -29,6 +29,7 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "integration: testes que exigem Kafka/Schema Registry via Docker Compose",
+    "contract: testes de contrato e de configuracao, sem Docker",
 ]
 asyncio_mode = "auto"
 

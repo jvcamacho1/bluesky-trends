@@ -3,6 +3,7 @@ PY ?= python3
 PIP_INSTALL ?= pip install -e "./producer[dev]"
 FIXTURE ?= producer/tests/fixtures/jetstream_frames.jsonl
 DASHBOARD_DIR ?= public
+PRIVATE_DIR ?= private
 REMOTE_PATH ?= /srv/bluesky
 
 .PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check export-dashboard dashboard-deploy deploy test test-unit test-integration lint fmt clean
@@ -40,12 +41,13 @@ consume-dlq: ## Console consumer do topico de dead letters
 consume-check: ## Decodifica e imprime mensagens Avro do topico de posts
 	cd producer && $(PY) -m producer.consume_check 127.0.0.1:29092 http://localhost:8081 bluesky.posts.pt.v1 10
 
-export-dashboard: ## Exporta dados do topico para docs/data.json (dashboard)
+export-dashboard: ## Exporta dados do topico para docs/data.json (painel interno)
 	cd producer && $(PY) -m producer.export_dashboard --output ../docs/data.json
 
-dashboard-deploy: ## Publica o dashboard estatico em public/ (servido pelo nginx)
-	mkdir -p $(DASHBOARD_DIR)
-	install -m 644 docs/index.html $(DASHBOARD_DIR)/index.html
+dashboard-deploy: ## Publica as paginas estaticas (publica e interna)
+	mkdir -p $(DASHBOARD_DIR) $(PRIVATE_DIR)
+	install -m 644 docs/public.html $(DASHBOARD_DIR)/index.html
+	install -m 644 docs/index.html $(PRIVATE_DIR)/index.html
 
 deploy: ## Sincroniza e sobe a stack na VPS (HOST=deploy@ip)
 	./deploy/deploy.sh $(HOST) $(REMOTE_PATH)

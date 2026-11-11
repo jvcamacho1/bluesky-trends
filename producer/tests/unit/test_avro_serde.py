@@ -57,7 +57,7 @@ def test_serialize_wire_format(serializer, schema):
 
     parsed = avro.schema.parse(json.dumps(schema))
     decoded = DatumReader(parsed).read(BinaryDecoder(io.BytesIO(wire[5:])))
-    assert decoded == event
+    assert decoded == {**event, "self_labels": None}
 
 
 def test_serialize_null_hashtags(serializer):

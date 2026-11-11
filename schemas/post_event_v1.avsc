@@ -12,6 +12,7 @@
     {"name": "seq", "type": "long", "doc": "sequencia monotona do Jetstream, usada como cursor"},
     {"name": "text", "type": "string"},
     {"name": "langs", "type": {"type": "array", "items": "string"}},
+    {"name": "self_labels", "type": ["null", {"type": "array", "items": "string"}], "default": null, "doc": "rotulos que o proprio autor aplicou no record (labels.values[].val), usados para excluir conteudo adulto dos agregados publicos"},
     {"name": "hashtag_entities", "type": ["null", {"type": "array", "items": {
       "type": "record",
       "name": "HashtagEntity",

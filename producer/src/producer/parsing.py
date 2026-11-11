@@ -25,6 +25,7 @@ class PostEvent:
     seq: int
     text: str
     langs: list[str] = field(default_factory=list)
+    self_labels: list[str] | None = None
     hashtag_entities: list[HashtagEntity] | None = None
 
     def to_dict(self) -> dict:
@@ -37,6 +38,7 @@ class PostEvent:
             "seq": self.seq,
             "text": self.text,
             "langs": self.langs,
+            "self_labels": self.self_labels,
             "hashtag_entities": (
                 None
                 if self.hashtag_entities is None
@@ -95,6 +97,30 @@ def extract_hashtags(record: dict) -> list[HashtagEntity] | None:
     return entities or None
 
 
+def extract_self_labels(record: dict) -> list[str] | None:
+    """Rotulos que o proprio autor aplicou (labels.values[].val).
+
+    Serve para tirar conteudo adulto dos agregados publicos sem depender de
+    moderacao de terceiros. Ausente ou vazio vira None.
+    """
+    labels = record.get("labels")
+    if isinstance(labels, list):
+        values = labels
+    elif isinstance(labels, dict):
+        values = labels.get("values")
+    else:
+        return None
+    if not isinstance(values, list):
+        return None
+    found: list[str] = []
+    for item in values:
+        if isinstance(item, dict) and isinstance(item.get("val"), str):
+            found.append(item["val"])
+        elif isinstance(item, str):
+            found.append(item)
+    return found or None
+
+
 def build_post_event(payload: dict) -> PostEvent:
     try:
         did = payload["did"]
@@ -127,5 +153,6 @@ def build_post_event(payload: dict) -> PostEvent:
         seq=seq,
         text=text,
         langs=langs,
+        self_labels=extract_self_labels(record),
         hashtag_entities=extract_hashtags(record),
     )

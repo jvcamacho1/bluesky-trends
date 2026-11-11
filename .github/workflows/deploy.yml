@@ -1,34 +1,89 @@
 name: Deploy VPS
 
-# Substitui o antigo pages.yml: o dashboard agora vive na VPS, atras do nginx.
-# Secrets necessarios no repositorio:
-#   VPS_HOST         host ou IP da VPS
-#   VPS_USER         usuario de deploy (bluesky)
-#   VPS_SSH_KEY      conteudo da chave privada ~/.ssh/bluesky
-#   VPS_KNOWN_HOSTS  saida de `ssh-keyscan -H <host>` (opcional, mas recomendado)
-#   VPS_PATH         caminho remoto (padrao /srv/bluesky)
+# O deploy so roda com tudo verde:
+#   1. o workflow CI (lint, unitarios, contrato, integracao) precisa ter passado
+#      neste mesmo commit, via workflow_run;
+#   2. o job de deploy roda de novo lint, unitarios, contrato e o teste de
+#      portas/orcamento antes de tocar na VPS;
+#   3. depois de subir, verifica a saida publica de verdade (sem senha em /,
+#      401 em /interno/, public.json valido e recente).
+#
+# Secrets necessarios no ambiente vps:
+#   VPS_HOST, VPS_USER, VPS_PORT, VPS_SSH_KEY, VPS_KNOWN_HOSTS
+#   VPS_PATH (opcional, padrao /srv/bluesky)
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-vps
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Tudo verde antes de tocar na VPS
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: producer/pyproject.toml
+
+      - name: Instalar dependencias
+        working-directory: producer
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        working-directory: producer
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+
+      - name: Unitarios
+        working-directory: producer
+        run: pytest -m "not integration and not contract" -q
+
+      - name: Contrato (public.json, privacidade, nginx)
+        working-directory: producer
+        run: pytest -m contract -q
+
+      - name: "Compose: portas em 127.0.0.1 e orcamento"
+        run: docker compose config >/dev/null
+
+      - name: "Pagina publica: sem innerHTML e sem CDN"
+        run: |
+          ! grep -q "innerHTML" docs/public.html
+          ! grep -qE "https?://(cdn|unpkg|fonts\.googleapis)" docs/public.html
+
   deploy:
     name: Sincronizar e subir na VPS
+    needs: gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: vps
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Preparar chave ssh
         env:
@@ -58,3 +113,71 @@ jobs:
           chmod +x deploy/deploy.sh
           SSH_PORT="${VPS_PORT:-22}" \
             deploy/deploy.sh "${VPS_USER}@${VPS_HOST}" "${VPS_PATH:-/srv/bluesky}"
+
+  verify:
+    name: Verificar a saida publica
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Esperar o public.json aparecer
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://blueskytrends.jvcamacho.dev/public.json || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "public.json nao respondeu 200"; exit 1
+
+      - name: "Raiz aberta e interno com senha"
+        run: |
+          root=$(curl -s -o /dev/null -w '%{http_code}' https://blueskytrends.jvcamacho.dev/)
+          interno=$(curl -s -o /dev/null -w '%{http_code}' https://blueskytrends.jvcamacho.dev/interno/)
+          dados=$(curl -s -o /dev/null -w '%{http_code}' https://blueskytrends.jvcamacho.dev/interno/data.json)
+          echo "raiz=$root interno=$interno data.json=$dados"
+          [ "$root" = "200" ] || exit 1
+          [ "$interno" = "401" ] || exit 1
+          [ "$dados" = "401" ] || exit 1
+
+      - name: "Contrato e privacidade do public.json publicado"
+        run: |
+          curl -s https://blueskytrends.jvcamacho.dev/public.json -o public.json
+          python3 - <<'PY'
+          import json, sys
+          from datetime import datetime, timedelta, timezone
+
+          data = json.load(open("public.json"))
+          erros = []
+          if set(data) != {"generated_at", "kpis", "trending", "volume_24h",
+                           "spikes", "week_heatmap", "pipeline"}:
+              erros.append(f"chaves: {sorted(data)}")
+          if len(data.get("volume_24h", [])) != 288:
+              erros.append("volume_24h diferente de 288 pontos")
+          if data.get("trending", {}).get("ranking") not in {"authors", "growth"}:
+              erros.append("ranking invalido")
+
+          def walk(node):
+              if isinstance(node, dict):
+                  for key, value in node.items():
+                      if key in {"did", "uri", "rkey", "text"}:
+                          erros.append(f"chave proibida: {key}")
+                      walk(value)
+              elif isinstance(node, list):
+                  for item in node:
+                      walk(item)
+              elif isinstance(node, str):
+                  if node.startswith(("did:", "at://")):
+                      erros.append(f"valor proibido: {node[:40]}")
+
+          walk(data)
+
+          gerado = datetime.strptime(data["generated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+          idade = datetime.now(timezone.utc) - gerado
+          if idade > timedelta(minutes=10):
+              erros.append(f"public.json velho: {idade}")
+
+          if erros:
+              print("\n".join(erros))
+              sys.exit(1)
+          print(f"ok: {data['kpis']['posts_24h']} posts em 24h, {len(data['trending']['items'])} termos em alta")
+          PY

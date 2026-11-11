@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bluesky em português, agora</title>
+<meta name="description" content="O que o Bluesky em português está falando agora, a partir de um pipeline de streaming em tempo real.">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --surface: #f6f7f9;
+    --line: #e3e6ea;
+    --ink: #14181f;
+    --dim: #5b6675;
+    --faint: #8b95a3;
+    --accent: #1d6fd8;
+    --warn: #b4341f;
+    --bar: #1d6fd8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116;
+      --surface: #161b22;
+      --line: #262d38;
+      --ink: #e8edf4;
+      --dim: #9aa7b8;
+      --faint: #6b7787;
+      --accent: #5aa2ff;
+      --warn: #ff7a5f;
+      --bar: #5aa2ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 2rem 1.25rem 4rem;
+  }
+  main { max-width: 68rem; margin: 0 auto; }
+  header { margin-bottom: 2rem; }
+  h1 { font-size: clamp(1.5rem, 4vw, 2.1rem); line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  .sub { color: var(--dim); margin: 0; }
+  .stamp { display: inline-flex; align-items: center; gap: .4rem; margin-top: .9rem;
+           font-size: .85rem; color: var(--dim); }
+  .dot { width: .5rem; height: .5rem; border-radius: 50%; background: #2ea043; }
+  .stamp.stale { color: var(--warn); }
+  .stamp.stale .dot { background: var(--warn); }
+  section { margin: 2.5rem 0 0; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .09em;
+       color: var(--faint); margin: 0 0 1rem; font-weight: 600; }
+  .kpis { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: .75rem; padding: 1rem; }
+  .kpi .v { font-size: clamp(1.5rem, 4vw, 2rem); font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .kpi .l { color: var(--dim); font-size: .8rem; margin-top: .15rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { text-align: left; padding: .6rem .5rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--faint); font-weight: 600; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .rank { color: var(--faint); width: 2rem; }
+  .term { font-weight: 600; }
+  .kind { color: var(--faint); font-size: .75rem; margin-left: .35rem; }
+  .ratio { color: var(--accent); font-weight: 600; }
+  .empty { color: var(--faint); font-size: .9rem; padding: 1rem 0; }
+  .chart { background: var(--surface); border: 1px solid var(--line); border-radius: .75rem; padding: 1rem .75rem .5rem; }
+  .chart svg { display: block; width: 100%; height: auto; }
+  .chart .axis { fill: var(--faint); font-size: 10px; }
+  .chart .line { fill: none; stroke: var(--bar); stroke-width: 1.6; }
+  .chart .area { fill: var(--bar); opacity: .12; }
+  .chart .spike { fill: var(--warn); }
+  .chart .spike-label { fill: var(--warn); font-size: 10px; }
+  .flow { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); margin-bottom: 1.25rem; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: .6rem; padding: .7rem .8rem; }
+  .step .n { font-weight: 600; font-size: .95rem; }
+  .step .d { color: var(--dim); font-size: .78rem; }
+  .health { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+  .health div { border: 1px solid var(--line); border-radius: .6rem; padding: .7rem .8rem; }
+  .health .v { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .health .l { color: var(--dim); font-size: .78rem; }
+  .heat { display: grid; grid-template-columns: auto repeat(24, 1fr); gap: 2px; font-size: .65rem; }
+  .heat span { color: var(--faint); }
+  .heat i { aspect-ratio: 1; border-radius: 2px; background: var(--bar); display: block; }
+  footer { margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+           color: var(--dim); font-size: .85rem; }
+  footer a { color: var(--accent); }
+  .hidden { display: none !important; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>O que o Bluesky em português está falando agora</h1>
+    <p class="sub">Contagem de pessoas, não de posts. Atualizado a partir do fluxo público do Bluesky.</p>
+    <p class="stamp" id="stamp"><span class="dot"></span><span id="stamp-text">carregando</span></p>
+  </header>
+
+  <section id="sec-numeros" class="hidden" aria-labelledby="h-numeros">
+    <h2 id="h-numeros">Números</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="k-ppm">—</div><div class="l">posts por minuto</div></div>
+      <div class="kpi"><div class="v" id="k-24h">—</div><div class="l">posts em 24 horas</div></div>
+      <div class="kpi"><div class="v" id="k-authors">—</div><div class="l">autores na última hora</div></div>
+      <div class="kpi"><div class="v" id="k-latency">—</div><div class="l">atraso do pipeline (p95)</div></div>
+    </div>
+  </section>
+
+  <section id="sec-trending" class="hidden" aria-labelledby="h-trending">
+    <h2 id="h-trending">Em alta agora</h2>
+    <table>
+      <caption class="sr">Termos mais citados por pessoas diferentes na última hora</caption>
+      <thead>
+        <tr>
+          <th class="rank">#</th>
+          <th>Termo</th>
+          <th class="num" id="th-metric">Autores</th>
+          <th class="num">Nas últimas 12 janelas</th>
+        </tr>
+      </thead>
+      <tbody id="trending-body"></tbody>
+    </table>
+    <p class="empty hidden" id="trending-empty">Ainda não há termos com autores suficientes na última hora.</p>
+  </section>
+
+  <section id="sec-volume" class="hidden" aria-labelledby="h-volume">
+    <h2 id="h-volume">Volume em 24 horas</h2>
+    <div class="chart">
+      <svg id="volume-chart" viewBox="0 0 720 220" role="img" aria-labelledby="volume-desc">
+        <title id="volume-desc">Posts por minuto nas últimas 24 horas</title>
+      </svg>
+    </div>
+  </section>
+
+  <section id="sec-heatmap" class="hidden" aria-labelledby="h-heatmap">
+    <h2 id="h-heatmap">Ritmo da semana</h2>
+    <div class="heat" id="heatmap" role="img" aria-label="Média de posts por hora em cada dia da semana"></div>
+  </section>
+
+  <section aria-labelledby="h-como">
+    <h2 id="h-como">Como funciona</h2>
+    <div class="flow">
+      <div class="step"><div class="n">Jetstream</div><div class="d">fluxo público do Bluesky, filtrado por posts em português</div></div>
+      <div class="step"><div class="n">Kafka</div><div class="d">tópico com schema Avro e dead letters</div></div>
+      <div class="step"><div class="n">Flink</div><div class="d">janelas de 5 minutos para trending e volume</div></div>
+      <div class="step"><div class="n">ClickHouse</div><div class="d">agregações com deduplicação por post</div></div>
+      <div class="step"><div class="n">Painel</div><div class="d">arquivos estáticos, sem consulta ao banco</div></div>
+    </div>
+    <div class="health" id="health"></div>
+  </section>
+
+  <footer>
+    <p>O idioma é o declarado pelo aplicativo de quem publicou, então pode errar. Só agregados saem daqui: nenhum texto de post, nenhum identificador de conta. Conteúdo adulto marcado pelo autor ou com termos da lista de bloqueio fica fora de todos os números.</p>
+    <p><a href="https://github.com/jvcamacho1/bluesky-trends" rel="noopener">Código no GitHub</a> · <a href="https://github.com/jvcamacho1/bluesky-trends#decisões-adrs-curtos" rel="noopener">Decisões técnicas</a></p>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var REFRESH_MS = 30000;
+  var STALE_MS = 5 * 60 * 1000;
+  var state = { data: null };
+
+  function $(id) { return document.getElementById(id); }
+
+  function show(id, visible) {
+    $(id).classList.toggle("hidden", !visible);
+  }
+
+  function fmtInt(n) {
+    if (n === null || n === undefined) return "—";
+    return new Intl.NumberFormat("pt-BR").format(n);
+  }
+
+  function fmtDecimal(n) {
+    if (n === null || n === undefined) return "—";
+    return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(n);
+  }
+
+  function fmtLatency(ms) {
+    if (ms === null || ms === undefined) return "—";
+    return fmtDecimal(ms / 1000) + " s";
+  }
+
+  function fmtDuration(seconds) {
+    if (seconds === null || seconds === undefined) return "—";
+    var d = Math.floor(seconds / 86400);
+    var h = Math.floor((seconds % 86400) / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return d + " d " + h + " h";
+    if (h > 0) return h + " h " + m + " min";
+    return m + " min";
+  }
+
+  function relative(iso) {
+    var then = Date.parse(iso);
+    if (isNaN(then)) return { text: "sem horário", stale: true };
+    var age = Date.now() - then;
+    if (age < 0) age = 0;
+    var s = Math.round(age / 1000);
+    var text = s < 60 ? "atualizado há " + s + " s"
+      : s < 3600 ? "atualizado há " + Math.round(s / 60) + " min"
+      : "atualizado há " + Math.round(s / 3600) + " h";
+    return { text: text, stale: age > STALE_MS };
+  }
+
+  function setStamp(iso) {
+    var info = relative(iso);
+    $("stamp-text").textContent = info.stale ? "desatualizado, último dado de " + new Date(iso).toLocaleString("pt-BR") : info.text;
+    $("stamp").classList.toggle("stale", info.stale);
+  }
+
+  function renderKpis(kpis) {
+    if (!kpis) { show("sec-numeros", false); return; }
+    $("k-ppm").textContent = fmtDecimal(kpis.posts_per_minute);
+    $("k-24h").textContent = fmtInt(kpis.posts_24h);
+    $("k-authors").textContent = fmtInt(kpis.authors_1h);
+    $("k-latency").textContent = fmtLatency(kpis.latency_p95_ms);
+    show("sec-numeros", true);
+  }
+
+  function sparkSvg(spark) {
+    var w = 96, h = 22, max = Math.max.apply(null, spark.concat([1]));
+    var step = spark.length > 1 ? w / (spark.length - 1) : w;
+    var points = spark.map(function (v, i) {
+      return (i * step).toFixed(1) + "," + (h - (v / max) * (h - 2) - 1).toFixed(1);
+    }).join(" ");
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    svg.setAttribute("width", w);
+    svg.setAttribute("height", h);
+    svg.setAttribute("aria-hidden", "true");
+    var line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    line.setAttribute("points", points);
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", "currentColor");
+    line.setAttribute("stroke-width", "1.5");
+    line.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(line);
+    return svg;
+  }
+
+  function renderTrending(trending) {
+    var body = $("trending-body");
+    body.replaceChildren();
+    if (!trending || !trending.items || trending.items.length === 0) {
+      show("sec-trending", true);
+      show("trending-empty", true);
+      return;
+    }
+    show("trending-empty", false);
+    $("th-metric").textContent = trending.ranking === "growth" ? "Crescimento" : "Autores";
+    trending.items.forEach(function (item, index) {
+      var tr = document.createElement("tr");
+
+      var rank = document.createElement("td");
+      rank.className = "rank";
+      rank.textContent = String(index + 1);
+      tr.appendChild(rank);
+
+      var termCell = document.createElement("td");
+      var term = document.createElement("span");
+      term.className = "term";
+      term.textContent = item.kind === "hashtag" ? "#" + item.term : item.term;
+      termCell.appendChild(term);
+      var kind = document.createElement("span");
+      kind.className = "kind";
+      kind.textContent = item.kind === "hashtag" ? "hashtag" : "termo";
+      termCell.appendChild(kind);
+      tr.appendChild(termCell);
+
+      var metric = document.createElement("td");
+      metric.className = "num";
+      if (trending.ranking === "growth" && item.ratio !== null) {
+        var ratio = document.createElement("span");
+        ratio.className = "ratio";
+        ratio.textContent = fmtDecimal(item.ratio) + "× o normal";
+        metric.appendChild(ratio);
+      } else {
+        metric.textContent = fmtInt(item.authors);
+      }
+      tr.appendChild(metric);
+
+      var sparkCell = document.createElement("td");
+      sparkCell.className = "num";
+      sparkCell.appendChild(sparkSvg(item.spark || []));
+      tr.appendChild(sparkCell);
+
+      body.appendChild(tr);
+    });
+    show("sec-trending", true);
+  }
+
+  function renderVolume(points, spikes) {
+    var svg = $("volume-chart");
+    while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+    if (!points || points.length === 0) { show("sec-volume", false); return; }
+
+    var W = 720, H = 220, padL = 34, padR = 8, padT = 14, padB = 22;
+    var values = points.map(function (p) { return p.posts_per_minute || 0; });
+    var max = Math.max.apply(null, values.concat([1]));
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var x = function (i) { return padL + (i / Math.max(points.length - 1, 1)) * innerW; };
+    var y = function (v) { return padT + innerH - (v / max) * innerH; };
+
+    var ns = "http://www.w3.org/2000/svg";
+    var area = document.createElementNS(ns, "path");
+    var d = "M" + x(0) + "," + y(0);
+    values.forEach(function (v, i) { d += " L" + x(i).toFixed(1) + "," + y(v).toFixed(1); });
+    d += " L" + x(values.length - 1).toFixed(1) + "," + y(0) + " Z";
+    area.setAttribute("d", d);
+    area.setAttribute("class", "area");
+    svg.appendChild(area);
+
+    var line = document.createElementNS(ns, "path");
+    var ld = values.map(function (v, i) { return (i === 0 ? "M" : "L") + x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
+    line.setAttribute("d", ld);
+    line.setAttribute("class", "line");
+    svg.appendChild(line);
+
+    [0, Math.round(max / 2), max].forEach(function (tick) {
+      var t = document.createElementNS(ns, "text");
+      t.setAttribute("x", padL - 6);
+      t.setAttribute("y", y(tick) + 3);
+      t.setAttribute("text-anchor", "end");
+      t.setAttribute("class", "axis");
+      t.textContent = String(tick);
+      svg.appendChild(t);
+    });
+
+    [0, Math.floor(points.length / 2), points.length - 1].forEach(function (i) {
+      var t = document.createElementNS(ns, "text");
+      t.setAttribute("x", x(i));
+      t.setAttribute("y", H - 6);
+      t.setAttribute("text-anchor", i === 0 ? "start" : i === points.length - 1 ? "end" : "middle");
+      t.setAttribute("class", "axis");
+      t.textContent = new Date(points[i].t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      svg.appendChild(t);
+    });
+
+    (spikes || []).forEach(function (spike) {
+      var index = points.findIndex(function (p) { return p.t === spike.t; });
+      if (index < 0) return;
+      var dot = document.createElementNS(ns, "circle");
+      dot.setAttribute("cx", x(index).toFixed(1));
+      dot.setAttribute("cy", y(spike.posts_per_minute || 0).toFixed(1));
+      dot.setAttribute("r", "3.5");
+      dot.setAttribute("class", "spike");
+      svg.appendChild(dot);
+      if (spike.terms && spike.terms.length) {
+        var label = document.createElementNS(ns, "text");
+        label.setAttribute("x", x(index).toFixed(1));
+        label.setAttribute("y", (y(spike.posts_per_minute || 0) - 8).toFixed(1));
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("class", "spike-label");
+        label.textContent = spike.terms[0];
+        svg.appendChild(label);
+      }
+    });
+
+    show("sec-volume", true);
+  }
+
+  function renderHeatmap(heat) {
+    var grid = $("heatmap");
+    grid.replaceChildren();
+    if (!heat || !heat.length) { show("sec-heatmap", false); return; }
+    var days = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+    var max = 0;
+    heat.forEach(function (row) { row.forEach(function (v) { if (v > max) max = v; }); });
+    var head = document.createElement("span");
+    head.textContent = "";
+    grid.appendChild(head);
+    for (var h = 0; h < 24; h += 3) {
+      var label = document.createElement("span");
+      label.textContent = String(h).padStart(2, "0") + "h";
+      label.style.gridColumn = "span 3";
+      grid.appendChild(label);
+    }
+    heat.forEach(function (row, dayIndex) {
+      var name = document.createElement("span");
+      name.textContent = days[dayIndex] || "";
+      grid.appendChild(name);
+      row.forEach(function (value) {
+        var cell = document.createElement("i");
+        cell.style.opacity = String(max ? 0.12 + 0.88 * (value / max) : 0.12);
+        cell.title = (days[dayIndex] || "") + " " + value + " posts/h";
+        grid.appendChild(cell);
+      });
+    });
+    show("sec-heatmap", true);
+  }
+
+  function renderHealth(pipeline) {
+    var box = $("health");
+    box.replaceChildren();
+    var items = [
+      ["Tempo no ar", fmtDuration(pipeline && pipeline.uptime_s)],
+      ["Eventos por segundo", pipeline && pipeline.events_per_s !== null && pipeline.events_per_s !== undefined ? fmtDecimal(pipeline.events_per_s) : "—"],
+      ["Fila de espera", pipeline && pipeline.lag !== null && pipeline.lag !== undefined ? fmtInt(pipeline.lag) : "—"],
+      ["Eventos rejeitados", pipeline && pipeline.dlq_ratio !== null && pipeline.dlq_ratio !== undefined ? fmtDecimal(pipeline.dlq_ratio * 100) + "%" : "—"]
+    ];
+    items.forEach(function (pair) {
+      var cell = document.createElement("div");
+      var v = document.createElement("div");
+      v.className = "v";
+      v.textContent = pair[1];
+      var l = document.createElement("div");
+      l.className = "l";
+      l.textContent = pair[0];
+      cell.appendChild(v);
+      cell.appendChild(l);
+      box.appendChild(cell);
+    });
+  }
+
+  function render(data) {
+    state.data = data;
+    setStamp(data.generated_at);
+    renderKpis(data.kpis);
+    renderTrending(data.trending);
+    renderVolume(data.volume_24h, data.spikes);
+    renderHeatmap(data.week_heatmap);
+    renderHealth(data.pipeline);
+  }
+
+  function load() {
+    fetch("/public.json", { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(render)
+      .catch(function () {
+        var stamp = $("stamp-text");
+        if (!state.data) stamp.textContent = "sem dados no momento";
+      });
+  }
+
+  load();
+  setInterval(load, REFRESH_MS);
+  setInterval(function () {
+    if (state.data) setStamp(state.data.generated_at);
+  }, 1000);
+})();
+</script>
+</body>
+</html>

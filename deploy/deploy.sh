@@ -6,6 +6,9 @@
 #   deploy/deploy.sh bluesky@203.0.113.10 /srv/bluesky
 #   SSH_PORT=2222 deploy/deploy.sh bluesky@203.0.113.10
 #
+# O script so sobe a stack depois de publicar as paginas: a pagina publica em
+# public/index.html e o painel interno em private/index.html.
+#
 # Variaveis de ambiente:
 #   SSH_PORT   porta do ssh na VPS (padrao 22)
 #   SSH_KEY    chave privada (padrao ~/.ssh/bluesky)
@@ -31,12 +34,13 @@ rsync -az --delete \
   -e "ssh ${SSH_OPTS[*]}" \
   "$REPO_ROOT/" "$HOST:$REMOTE_PATH/"
 
-echo "==> publicando o dashboard estatico"
+echo "==> publicando as paginas (publica e interna)"
 ssh "${SSH_OPTS[@]}" "$HOST" bash -s -- "$REMOTE_PATH" <<'REMOTE'
 set -euo pipefail
 REMOTE_PATH="$1"
-mkdir -p "$REMOTE_PATH/public"
-install -m 644 "$REMOTE_PATH/docs/index.html" "$REMOTE_PATH/public/index.html"
+mkdir -p "$REMOTE_PATH/public" "$REMOTE_PATH/private"
+install -m 644 "$REMOTE_PATH/docs/public.html" "$REMOTE_PATH/public/index.html"
+install -m 644 "$REMOTE_PATH/docs/index.html" "$REMOTE_PATH/private/index.html"
 REMOTE
 
 echo "==> conferindo o Docker rootless"
