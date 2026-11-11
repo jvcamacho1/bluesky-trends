@@ -63,5 +63,5 @@ docker compose up -d --build --remove-orphans
 docker compose ps
 REMOTE
 
-echo "==> pronto: https://trends.jvcamacho.dev/"
+echo "==> pronto: https://blueskytrends.jvcamacho.dev/"
 

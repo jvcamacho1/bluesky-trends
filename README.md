@@ -67,13 +67,13 @@ O teste de integração não depende do Bluesky: o producer tem um modo `INPUT_M
 
 ### Dashboard de validação (servido pela VPS)
 
-Um dashboard estático e minimalista (`docs/index.html`) lê `data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Ele é servido pelo nginx do host em **https://trends.jvcamacho.dev/** (raiz do subdomínio, com basic auth). O `data.json` é escrito a cada 5 minutos pelo serviço `dashboard-export` do Compose, que lê o Kafka da própria stack e troca o arquivo de forma atômica (`data.json.tmp` → `mv`).
+Um dashboard estático e minimalista (`docs/index.html`) lê `data.json` e mostra volume de posts por minuto, hashtags mais frequentes e os últimos posts ingeridos. Ele é servido pelo nginx do host em **https://blueskytrends.jvcamacho.dev/** (raiz do subdomínio, com basic auth). O `data.json` é escrito a cada 5 minutos pelo serviço `dashboard-export` do Compose, que lê o Kafka da própria stack e troca o arquivo de forma atômica (`data.json.tmp` → `mv`).
 
 Arquivos em `deploy/`:
 
 | Arquivo | O que faz |
 |---|---|
-| `nginx-bluesky-trends.conf` | `trends.jvcamacho.dev` na raiz, basic auth, `no-store` no `data.json`, 301 de `/trends/` para `/` |
+| `nginx-bluesky-trends.conf` | `blueskytrends.jvcamacho.dev` na raiz, basic auth, `no-store` no `data.json`, 301 de `/trends/` para `/` |
 | `nginx-grafana.conf` | `grafana.jvcamacho.dev` com `proxy_pass` para `127.0.0.1:3000` e cabeçalhos de WebSocket |
 | `deploy.sh` | rsync do repo para a VPS por ssh (porta em `SSH_PORT`, chave `bluesky`), publica o HTML e sobe a stack no Docker rootless |
 
@@ -133,7 +133,7 @@ A VPS é compartilhada: já hospeda outro site em produção na porta 8000, com 
    ln -sf /etc/nginx/sites-available/bluesky-trends /etc/nginx/sites-enabled/bluesky-trends
    ln -sf /etc/nginx/sites-available/bluesky-grafana /etc/nginx/sites-enabled/bluesky-grafana
    htpasswd -c /etc/nginx/.htpasswd-trends <usuario>
-   certbot --nginx -d trends.jvcamacho.dev -d grafana.jvcamacho.dev
+   certbot --nginx -d blueskytrends.jvcamacho.dev -d grafana.jvcamacho.dev
    nginx -t && systemctl reload nginx
    ```
 
