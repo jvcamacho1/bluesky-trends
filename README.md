@@ -125,7 +125,7 @@ A VPS é compartilhada: já hospeda outro site em produção na porta 8000, com 
 
 5. **Cloudflare.** Na zona `jvcamacho.dev`, crie os registros `trends` e `grafana` apontando para a VPS, com o proxy ligado, e deixe o modo de criptografia em **Full (strict)**. A origem só aceita 80 e 443, vindos da Cloudflare.
 
-6. **nginx e certificados.** Instale os dois arquivos do projeto, crie o htpasswd, emita os certificados e recarregue:
+6. **nginx e certificados.** O certificado de origem vem da Cloudflare Origin CA (Full strict), salvo em `/etc/ssl/cloudflare/jvcamacho.dev.pem` e `.key`, cobrindo `*.jvcamacho.dev`. Não use certbot: o navegador vê o certificado da borda da Cloudflare. Instale os arquivos do projeto, crie o htpasswd e recarregue:
 
    ```bash
    install -m 644 deploy/nginx-bluesky-trends.conf /etc/nginx/sites-available/bluesky-trends
@@ -133,7 +133,6 @@ A VPS é compartilhada: já hospeda outro site em produção na porta 8000, com 
    ln -sf /etc/nginx/sites-available/bluesky-trends /etc/nginx/sites-enabled/bluesky-trends
    ln -sf /etc/nginx/sites-available/bluesky-grafana /etc/nginx/sites-enabled/bluesky-grafana
    htpasswd -c /etc/nginx/.htpasswd-trends <usuario>
-   certbot --nginx -d blueskytrends.jvcamacho.dev -d grafana.jvcamacho.dev
    nginx -t && systemctl reload nginx
    ```
 
