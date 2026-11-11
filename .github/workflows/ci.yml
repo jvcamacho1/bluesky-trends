@@ -5,6 +5,7 @@ on:
     branches: ["main", "vibe/**"]
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
 
 # Um push e o PR dele geram o mesmo teste: o grupo ignora o evento, entao a
 # execucao anterior e cancelada em vez de rodar duas vezes o mesmo commit.
