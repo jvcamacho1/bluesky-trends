@@ -7,7 +7,7 @@ Projeto de portfólio de engenharia de dados: **Kafka (KRaft) + Schema Registry 
 ## Estado atual — Fase 1 (de 5)
 
 - [x] **Fase 1** — Producer Python (Jetstream v2 → Kafka) + Kafka KRaft + Schema Registry, Avro com evolução de schema, tópico de dead letters, testes unitários e de integração, CI no GitHub Actions
-- [ ] **Fase 2** — Job Flink com janelas de trending (HOP 5 min / slide 1 min) e volume por minuto
+- [x] **Fase 2** — Job Flink com janelas de trending (HOP 5 min / slide 1 min) e volume por minuto
 - [ ] **Fase 3** — Sink ClickHouse + painel Grafana
 - [ ] **Fase 4** — Detecção de picos + métricas Prometheus + alertas
 - [ ] **Fase 5** — Deploy na VPS (nginx + autenticação, health checks, CI/CD de deploy) — o dashboard e o CI/CD de deploy já estão prontos em `deploy/`, falta executar a instalação da VPS
@@ -207,6 +207,35 @@ Porta publicada pelo Docker ignora o firewall do host, então todo `ports:` do C
 
 Kafka e Schema Registry publicam apenas em `127.0.0.1` (nada exposto à internet); o Kafka expõe um listener `HOST` em `127.0.0.1:29092` para ferramentas rodando no host (o listener `PLAINTEXT` interno anuncia `kafka:9092` e só é resolvível dentro do Compose). Na VPS (Fase 5) essas portas saem do Compose e o Grafana entra atrás do nginx existente com autenticação.
 
+## Fase 2: janelas no Flink
+
+O cluster Flink 1.20 LTS roda em `docker-compose.flink.yml`, incluído pelo compose principal. São três jobs SQL, todos lendo o tópico Avro pelo conector `avro-confluent`:
+
+| Job | Janela | Saída |
+|---|---|---|
+| trending de hashtags | `HOP` 5 min, slide 1 min, `COUNT(DISTINCT did)` | `bluesky.trending.v1` (`kind=hashtag`) |
+| trending de termos | `HOP` 5 min, slide 1 min, tokenização por `SPLIT_INDEX` | `bluesky.trending.v1` (`kind=term`) |
+| volume por minuto | `TUMBLE` 1 min | `bluesky.volume.v1` |
+
+- **Watermark** de 2 minutos sobre `event_time` (o `createdAt` do post). `ingest_time` não entra em janela: ele existe para medir latência.
+- **Tempo de evento inválido é descartado**, não derruba o job. O Jetstream às vezes entrega `createdAt` com offset (`+00:00`) ou lixo; o `ts` é cortado nos 19 primeiros caracteres e cada job filtra `ts IS NOT NULL`.
+- **Autores, não posts.** `COUNT(DISTINCT did)` é o que tira robô do topo; `posts` fica ao lado para dar contexto.
+- **Termos do texto** são extraídos no Flink, como diz a ADR-009: 50 primeiras palavras por post, sem pontuação, sem acento, com lista de palavras vazias.
+- **Sem views intermediárias** antes da janela: no Flink 1.20 uma view com `UNNEST` ou filtro sobre a tabela com watermark quebra o planner (`belongs to a different planner`). As agregações leem a tabela `posts` direto.
+- **Recursos:** jobmanager 1,75 GB / 0,4 CPU e taskmanager 1,75 GB / 0,5 CPU, com heap explícito. A stack inteira fica em 6,25 GB e 3,0 CPUs, dentro do orçamento de 7 GB e 3.
+
+Como usar:
+
+```bash
+make up            # sobe tudo, incluindo o cluster Flink
+make flink-submit  # submete os tres jobs
+make flink-jobs    # lista os jobs em execucao
+make trending      # ultimas janelas de trending
+make volume        # ultimas janelas de volume
+```
+
+A interface do Flink fica em `http://127.0.0.1:8082` (só loopback). A Fase 3 troca os tópicos de saída pelo ClickHouse.
+
 ## Decisões (ADRs curtos)
 
 ### ADR-001 — Jetstream v2 em vez da v1
@@ -250,6 +279,11 @@ O Jetstream entrega os rótulos que o próprio autor aplicou ao post em `record.
 
 ```
 ├── docker-compose.yml        # Kafka KRaft, Schema Registry, kafka-init, producer
+├── flink/                     # fase 2: cluster e jobs SQL
+│   ├── Dockerfile             # Flink 1.20 + conectores versionados em lib/
+│   ├── docker-compose.flink.yml
+│   ├── submit.sh              # submete os tres jobs
+│   └── sql/                   # fontes, sinks, trending, volume, termos
 ├── docs/public.html           # painel publico (raiz do subdominio)
 ├── docs/index.html            # painel de validacao (/interno/)
 ├── schemas/post_event_v1.avsc

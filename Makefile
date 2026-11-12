@@ -6,7 +6,7 @@ DASHBOARD_DIR ?= public
 PRIVATE_DIR ?= private
 REMOTE_PATH ?= /srv/bluesky
 
-.PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check export-dashboard dashboard-deploy deploy test test-unit test-integration lint fmt clean
+.PHONY: help install up down restart ps logs logs-producer topics consume consume-dlq consume-check export-dashboard dashboard-deploy deploy flink-submit flink-jobs flink-cancel trending volume test test-unit test-integration lint fmt clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -48,6 +48,21 @@ dashboard-deploy: ## Publica as paginas estaticas (publica e interna)
 	mkdir -p $(DASHBOARD_DIR) $(PRIVATE_DIR)
 	install -m 644 docs/public.html $(DASHBOARD_DIR)/index.html
 	install -m 644 docs/index.html $(PRIVATE_DIR)/index.html
+
+flink-submit: ## Submete os jobs de trending no cluster Flink
+	$(COMPOSE) exec -T flink-jobmanager /opt/submit.sh
+
+flink-jobs: ## Lista os jobs do Flink
+	$(COMPOSE) exec -T flink-jobmanager flink list -m flink-jobmanager:8081
+
+flink-cancel: ## Cancela todos os jobs em execucao (JOB=<id> para um so)
+	$(COMPOSE) exec -T flink-jobmanager flink cancel -m flink-jobmanager:8081 $(JOB)
+
+trending: ## Mostra as ultimas janelas de trending do topico de saida
+	$(COMPOSE) exec -T kafka kafka-console-consumer --bootstrap-server kafka:9092 		--topic bluesky.trending.v1 --from-beginning --timeout-ms 5000
+
+volume: ## Mostra as ultimas janelas de volume do topico de saida
+	$(COMPOSE) exec -T kafka kafka-console-consumer --bootstrap-server kafka:9092 		--topic bluesky.volume.v1 --from-beginning --timeout-ms 5000
 
 deploy: ## Sincroniza e sobe a stack na VPS (HOST=deploy@ip)
 	./deploy/deploy.sh $(HOST) $(REMOTE_PATH)
