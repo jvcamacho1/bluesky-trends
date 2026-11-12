@@ -106,12 +106,28 @@ jobs:
           fi
           echo "Secrets presentes."
 
+      - name: Normalizar valores dos secrets
+        env:
+          RAW_HOST: ${{ secrets.VPS_HOST }}
+          RAW_USER: ${{ secrets.VPS_USER }}
+          RAW_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          # espaco ou quebra de linha invisivel no secret quebra ssh-keyscan e rsync
+          host=$(printf '%s' "$RAW_HOST" | tr -d '[:space:]')
+          user=$(printf '%s' "$RAW_USER" | tr -d '[:space:]')
+          port=$(printf '%s' "$RAW_PORT" | tr -d '[:space:]')
+          case "$port" in
+            ''|*[!0-9]*) echo "::error::VPS_PORT invalido: '$port' (esperado 1-65535)"; exit 1 ;;
+          esac
+          echo "VPS_HOST=$host" >> "$GITHUB_ENV"
+          echo "VPS_USER=$user" >> "$GITHUB_ENV"
+          echo "VPS_PORT=$port" >> "$GITHUB_ENV"
+          echo "host=$host user=$user port=$port"
+
       - name: Preparar chave ssh
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
         run: |
           install -d -m 700 ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/bluesky
@@ -120,20 +136,17 @@ jobs:
             printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
             chmod 644 ~/.ssh/known_hosts
           else
-            ssh-keyscan -p "${VPS_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+            ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts
           fi
 
       - name: Deploy
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_PATH: ${{ secrets.VPS_PATH }}
           SSH_KEY: ~/.ssh/bluesky
         run: |
           chmod +x deploy/deploy.sh
-          SSH_PORT="${VPS_PORT:-22}" \
-            deploy/deploy.sh "${VPS_USER}@${VPS_HOST}" "${VPS_PATH:-/srv/bluesky}"
+          SSH_PORT="$VPS_PORT" \
+            deploy/deploy.sh "$VPS_USER@$VPS_HOST" "${VPS_PATH:-/srv/bluesky}"
 
   verify:
     name: Verificar a saida publica
