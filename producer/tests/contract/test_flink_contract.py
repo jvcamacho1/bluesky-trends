@@ -178,3 +178,13 @@ def test_pagina_do_flink_so_usa_textcontent_e_le_o_flink_json():
     assert "textContent" in html
     # sem script de terceiros: so as fontes do portfolio vem de fora
     assert not re.search(r"<script[^>]+src=", html)
+
+
+def test_paginas_publicas_tem_as_abas_de_navegacao():
+    for name, current in (("public.html", "/"), ("flink.html", "/flink/")):
+        html = (REPO_ROOT / "docs" / name).read_text(encoding="utf-8")
+        assert 'class="tabs"' in html, name
+        assert '<a href="/"' in html and '<a href="/flink/"' in html, name
+        assert f'href="{current}" aria-current="page"' in html, name
+        assert "inner" + "HTML" not in html, name
+        assert not re.search(r"<script[^>]+src=", html), name
