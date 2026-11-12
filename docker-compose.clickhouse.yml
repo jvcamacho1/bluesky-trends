@@ -1,0 +1,41 @@
+# ClickHouse (fase 3): guarda as janelas que o Flink fecha.
+#
+# O ClickHouse escuta em 127.0.0.1:8123 (HTTP) e 127.0.0.1:9000 (nativo). A
+# pagina /historico/ le pelo servico ch-export, que roda dentro da rede do
+# Compose, entao nada precisa sair do loopback.
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: bluesky-trends-clickhouse
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8123:8123"
+    environment:
+      CLICKHOUSE_DB: bluesky
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./clickhouse/limits.xml:/etc/clickhouse-server/config.d/limits.xml:ro
+      - clickhouse-data:/var/lib/clickhouse
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "0.4"
+    healthcheck:
+      # 127.0.0.1 e nao localhost: o container nao resolve "localhost" para IPv4
+      # e o wget tenta ::1, onde o ClickHouse nao escuta
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  clickhouse-data:

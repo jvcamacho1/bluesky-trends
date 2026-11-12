@@ -3,6 +3,7 @@ name: bluesky-trends
 # A fase 2 (Flink) vive em docker-compose.flink.yml e entra aqui.
 include:
   - docker-compose.flink.yml
+  - docker-compose.clickhouse.yml
 
 services:
   kafka:
@@ -25,13 +26,13 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
+      KAFKA_HEAP_OPTS: "-Xmx384M -Xms384M"
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
     deploy:
       resources:
         limits:
-          memory: 1g
-          cpus: "0.5"
+          memory: 768m
+          cpus: "0.4"
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 10s
@@ -80,13 +81,13 @@ services:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
       SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
-      SCHEMA_REGISTRY_HEAP_OPTS: "-Xmx256M"
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xmx192M"
       SCHEMA_REGISTRY_DEBUG: "false"
     deploy:
       resources:
         limits:
-          memory: 512m
-          cpus: "0.3"
+          memory: 384m
+          cpus: "0.2"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8081'"]
       interval: 10s
@@ -117,7 +118,7 @@ services:
       resources:
         limits:
           memory: 256m
-          cpus: "0.5"
+          cpus: "0.35"
 
   # Agregados publicos do painel: consumidor de longa duracao, baldes de 5 min,
   # 24 h em memoria, public.json regravado a cada minuto. Sem porta publicada.
@@ -146,7 +147,7 @@ services:
       resources:
         limits:
           memory: 256m
-          cpus: "0.3"
+          cpus: "0.25"
 
   # Pagina /flink/: le as janelas que o Flink grava (trending e volume) e
   # regrava o flink.json a cada 30 s. So JSON pequeno, sem Avro nem texto de
@@ -173,6 +174,54 @@ services:
         limits:
           memory: 128m
           cpus: "0.1"
+
+  # Grava as janelas do Kafka no ClickHouse. O Flink calcula a janela; este
+  # servico so transporta, porque o conector JDBC do Flink nao fala ClickHouse.
+  ch-sink:
+    build:
+      context: .
+      dockerfile: producer/Dockerfile
+    container_name: bluesky-trends-ch-sink
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    command: ["python", "-m", "producer.ch_sink"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CH_MIN_AUTHORS: "1"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.05"
+
+  # Le as janelas do ClickHouse e regrava historico.json a cada minuto.
+  # So SELECT: quem escreve no banco e o Flink.
+  ch-export:
+    build:
+      context: .
+      dockerfile: producer/Dockerfile
+    container_name: bluesky-trends-ch-export
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    command: ["python", "-m", "producer.ch_export"]
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      HISTORY_OUTPUT: /public/historico.json
+      HISTORY_INTERVAL_S: "60"
+    volumes:
+      - ./public:/public
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.05"
 
   # Exporta o data.json do painel interno a cada 5 minutos, direto do topico.
   # Substitui o antigo systemd timer: roda na mesma imagem do producer, sem
