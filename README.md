@@ -73,6 +73,8 @@ A raiz de https://blueskytrends.jvcamacho.dev/ é pública, sem senha: mostra o 
 |---|---|---|
 | `/` | `public/index.html` | aberto, `Cache-Control: public, max-age=300` |
 | `/public.json` | agregados | aberto, `Cache-Control: public, max-age=30` |
+| `/flink/` | `public/flink/index.html`: janelas do Flink ao vivo | aberto, `max-age=300` |
+| `/flink.json` | saída dos jobs Flink | aberto, `max-age=30` |
 | `/interno/` | painel de validação e o `data.json` com posts brutos | senha |
 
 - O `data.json` fica em `/srv/bluesky/private/`, nunca em `public/`.
@@ -235,6 +237,32 @@ make volume        # ultimas janelas de volume
 ```
 
 A interface do Flink fica em `http://127.0.0.1:8082` (só loopback). A Fase 3 troca os tópicos de saída pelo ClickHouse.
+
+### Página `/flink/`
+
+A página `docs/flink.html` (publicada em `/flink/`) mostra o que os três jobs escrevem, com a identidade visual do portfólio: o caminho nascente → Flink → termos em alta, a janela HOP mais recente com minigráfico das 12 anteriores e o volume por minuto das últimas 3 horas. Cada ponto que corre nos canos é um post, no ritmo do último minuto fechado; nada é simulado.
+
+O serviço `flink-export` do Compose (128 MB / 0,1 CPU, sem porta) lê `bluesky.trending.v1` e `bluesky.volume.v1`, começa pelos últimos minutos com `offsets_for_times` e grava `flink.json` a cada 30 segundos, com troca atômica.
+
+- **Só janela assentada.** O Flink regrava a mesma chave enquanto chegam posts daquela janela (upsert). O exportador guarda o último valor de cada chave e só usa janelas cujo fim passou de agora − 3 min (watermark de 2 min + folga).
+- **Mesmas regras do painel público.** Os três jobs descartam posts com rótulo próprio adulto (ADR-012); o exportador tira termos da lista de bloqueio, palavras vazias e pedaços de link ou de menção (o Flink tokeniza sem removê-los), e exige `FLINK_MIN_AUTHORS` autores distintos na janela (padrão 10).
+- **Lacuna é lacuna.** Minuto ou janela ausente no tópico vira `null` e a página deixa em branco.
+- **Jobs no deploy.** O `deploy.sh` chama `flink/submit.sh` depois do `docker compose up`; o script não faz nada se já há jobs rodando e resubmete quando o jobmanager foi recriado.
+
+Contrato do `flink.json`:
+
+```json
+{
+  "generated_at": "2026-11-12T04:14:48Z",
+  "min_authors": 10,
+  "window": {"start": "2026-11-12T04:06:00Z", "end": "2026-11-12T04:11:00Z"},
+  "kpis": {"posts_last_minute": 26, "posts_last_hour": 1902,
+           "peak_minute": {"t": "2026-11-12T03:30:00Z", "posts": 63}, "event_delay_s": 228},
+  "hashtags": [{"term": "exemplo", "authors": 12, "posts": 20, "spark": [null, 3, 5, 8, 0, 9, 10, 12, 11, 12, 12, 12]}],
+  "terms": [],
+  "volume": [{"t": "2026-11-12T01:12:00Z", "posts": 41}]
+}
+```
 
 ## Decisões (ADRs curtos)
 

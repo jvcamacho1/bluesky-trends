@@ -17,6 +17,16 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 
+# Idempotente: o deploy chama este script a cada push. Se ja ha jobs rodando,
+# nao submete de novo (o mesmo INSERT duas vezes duplicaria cada janela).
+# Quando o SQL muda, a imagem e reconstruida e o jobmanager e recriado sem
+# jobs, entao a proxima chamada submete a versao nova.
+running=$(/opt/flink/bin/flink list -r -m "$JM" 2>/dev/null | grep -c "(RUNNING)" || true)
+if [ "${running:-0}" -gt 0 ] && [ "${FORCE_SUBMIT:-0}" != "1" ]; then
+  echo "==> $running job(s) ja em execucao; nada a submeter"
+  exit 0
+fi
+
 run_sql() {
   local file="$1"
   echo "==> $file"
