@@ -8,7 +8,7 @@ Projeto de portfólio de engenharia de dados: **Kafka (KRaft) + Schema Registry 
 
 - [x] **Fase 1** — Producer Python (Jetstream v2 → Kafka) + Kafka KRaft + Schema Registry, Avro com evolução de schema, tópico de dead letters, testes unitários e de integração, CI no GitHub Actions
 - [x] **Fase 2** — Job Flink com janelas de trending (HOP 5 min / slide 1 min) e volume por minuto
-- [ ] **Fase 3** — Sink ClickHouse + painel Grafana
+- [x] **Fase 3** — ClickHouse com TTL e dedupe, painel `/historico/` com crescimento, ritmo da semana e volume
 - [ ] **Fase 4** — Detecção de picos + métricas Prometheus + alertas
 - [ ] **Fase 5** — Deploy na VPS (nginx + autenticação, health checks, CI/CD de deploy) — o dashboard e o CI/CD de deploy já estão prontos em `deploy/`, falta executar a instalação da VPS
 
@@ -209,6 +209,21 @@ Porta publicada pelo Docker ignora o firewall do host, então todo `ports:` do C
 
 Kafka e Schema Registry publicam apenas em `127.0.0.1` (nada exposto à internet); o Kafka expõe um listener `HOST` em `127.0.0.1:29092` para ferramentas rodando no host (o listener `PLAINTEXT` interno anuncia `kafka:9092` e só é resolvível dentro do Compose). Na VPS (Fase 5) essas portas saem do Compose e o Grafana entra atrás do nginx existente com autenticação.
 
+## Fase 3: histórico no ClickHouse
+
+O ClickHouse guarda as janelas que o Flink fecha, para a página `/historico/` olhar além da última hora.
+
+| Rota | Conteúdo | Acesso |
+|---|---|---|
+| `/historico/` | crescimento por termo, ritmo da semana, volume por hora | aberto |
+| `/historico.json` | os mesmos dados, `Cache-Control: public, max-age=30` | aberto |
+
+- **Duas tabelas**, as duas com `ReplacingMergeTree` e TTL: `bluesky.trending_terms` (7 dias) e `bluesky.volume_minutes` (30 dias). A chave de ordenação inclui a janela e o termo, então reenviar a mesma janela substitui a linha em vez de duplicar.
+- **Quem grava:** o serviço `ch-sink`, que lê os tópicos do Flink e insere em lote pelo HTTP do ClickHouse. O conector JDBC do Flink 3.4 não tem factory para ClickHouse, e forçar a URL de outro banco faz o driver errado ser carregado; um consumidor Python resolve sem gambiarra.
+- **Quem lê:** o serviço `ch-export`, que roda `SELECT` a cada minuto e regrava `historico.json`. Nenhuma consulta ao banco sai do servidor.
+- **Crescimento** só aparece com pelo menos 3 horas de histórico: `ratio = (autores na última hora + 5) / (média da mesma hora nas últimas 24h + 5)`. Antes disso a lista ordena por autores e a página diz isso.
+- **Memória:** o container tem 1 GB e o `max_server_memory_usage` fica em 700 MB. Os logs de sistema do ClickHouse (`metric_log`, `query_log`, `trace_log`) ficam desligados: eram eles que estouravam o limite.
+
 ## Fase 2: janelas no Flink
 
 O cluster Flink 1.20 LTS roda em `docker-compose.flink.yml`, incluído pelo compose principal. São três jobs SQL, todos lendo o tópico Avro pelo conector `avro-confluent`:
@@ -307,6 +322,7 @@ O Jetstream entrega os rótulos que o próprio autor aplicou ao post em `record.
 
 ```
 ├── docker-compose.yml        # Kafka KRaft, Schema Registry, kafka-init, producer
+├── clickhouse/                # fase 3: schema com TTL e limites de memoria
 ├── flink/                     # fase 2: cluster e jobs SQL
 │   ├── Dockerfile             # Flink 1.20 + conectores versionados em lib/
 │   ├── docker-compose.flink.yml

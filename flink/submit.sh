@@ -38,9 +38,9 @@ run_sql() {
 BASE=("01_sources.sql" "02_sinks.sql")
 
 submit() {
-  local file="$1"
-  echo "==> $file"
-  cat "${BASE[@]/#/$SQL_DIR/}" "$SQL_DIR/$file" > /tmp/job.sql
+  echo "==> $*"
+  # fontes e sinks base + os arquivos pedidos, na ordem, na mesma sessao
+  cat "${BASE[@]/#/$SQL_DIR/}" $(for f in "$@"; do echo "$SQL_DIR/$f"; done) > /tmp/job.sql
   "$SQL_CLIENT" -f /tmp/job.sql
 }
 

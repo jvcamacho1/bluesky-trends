@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bluesky-trends · histórico no ClickHouse</title>
+<meta name="description" content="O que o Bluesky em português falou nas últimas semanas: crescimento por termo, ritmo por hora e dia, e o volume guardado no ClickHouse.">
+<meta name="referrer" content="no-referrer">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<script>(function(){var d=document.documentElement;try{var t=localStorage.getItem("theme");if(t)d.dataset.theme=t}catch(e){}})()</script>
+<style>
+/* Estrutura e tipografia do portfolio (jvcamacho.dev) com as cores do
+   Bluesky: azul #1185fe como unica cor de destaque, fundo azul-marinho no
+   escuro e branco no claro; serif nos titulos, mono nos rotulos. As fontes vem do
+   Google Fonts, como no portfolio; sem elas a pagina cai nas pilhas abaixo. */
+:root {
+  --bg: #0b121b;
+  --surface: #121c28;
+  --surface-2: #1b2836;
+  --text: #f1f3f5;
+  --muted: #8ba2b5;
+  --border: #22324a;
+  --accent: #1185fe;
+  --accent-soft: rgba(17, 133, 254, .14);
+  --accent-glow: rgba(17, 133, 254, .55);
+  --accent-ink: #ffffff;
+  --warn: #ff6b5e;
+  --maxw: 1200px;
+  --gutter: clamp(16px, 5vw, 56px);
+  --serif: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", SFMono-Regular, Menlo, Consolas, monospace;
+  --flow-dur: 2s;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --surface: #f6f8fb;
+  --surface-2: #e9eef4;
+  --text: #0b0f14;
+  --muted: #5b6f82;
+  --border: #d4dde7;
+  --accent: #0a6fe0;
+  --accent-soft: rgba(10, 111, 224, .09);
+  --accent-glow: rgba(10, 111, 224, .35);
+  --accent-ink: #ffffff;
+  --warn: #b42318;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.65 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+::selection { background: var(--accent); color: var(--accent-ink); }
+a { color: inherit; text-decoration-color: var(--accent); text-underline-offset: 4px; }
+a:hover { color: var(--accent); }
+code { font-family: var(--mono); font-size: .84em; background: var(--surface-2); padding: .12em .4em; border-radius: 3px; }
+[hidden] { display: none !important; }
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Cabecalho */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+.brand { font: 400 1.35rem/1 var(--serif); text-decoration: none; margin-right: auto; white-space: nowrap; }
+/* navegacao entre as paginas: abas segmentadas, como o seletor de idioma do portfolio */
+.tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
+.tabs a {
+  display: inline-flex; align-items: center; height: 32px; padding: 0 14px; text-decoration: none;
+  color: var(--muted); font: 600 .7rem var(--mono); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.tabs a + a { border-left: 1px solid var(--border); }
+.tabs a:hover { color: var(--accent); }
+.tabs a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+.ext { color: var(--muted); text-decoration: none; font: 500 .7rem var(--mono); text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; }
+.ext:hover { color: var(--accent); }
+.btn-icon {
+  border: 1px solid var(--border); border-radius: 2px; background: transparent; color: var(--muted);
+  height: 32px; min-width: 34px; font-size: .95rem; cursor: pointer;
+}
+.btn-icon:hover { color: var(--accent); border-color: var(--accent); }
+@media (max-width: 760px) { .ext { display: none; } }
+@media (max-width: 560px) {
+  .topbar .wrap { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; row-gap: 10px; }
+  .tabs { order: 3; width: 100%; }
+  .tabs a { flex: 1; justify-content: center; padding: 0 8px; }
+}
+
+/* Tipografia */
+h1, h2, h3 { margin: 0 0 16px; }
+h1, h2 { font-family: var(--serif); font-weight: 400; letter-spacing: -.015em; text-wrap: balance; }
+h1 { font-size: clamp(2.6rem, 7vw, 5.6rem); line-height: .98; max-width: 16ch; }
+h2 { font-size: clamp(2rem, 4.4vw, 3.2rem); line-height: 1.04; }
+h1 em, h2 em { font-style: italic; color: var(--accent); }
+.eyebrow { font: 500 .72rem var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--muted); margin: 0 0 18px; }
+.lead { font-size: clamp(1.02rem, 1.4vw, 1.16rem); color: var(--muted); max-width: 60ch; margin: 0 0 1em; }
+.label { font: 500 .68rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+
+main { counter-reset: sec; }
+section { padding: clamp(56px, 9vw, 112px) 0; border-top: 1px solid var(--border); }
+section[id] { counter-increment: sec; }
+section[id] > .wrap > .eyebrow::before { content: counter(sec, decimal-leading-zero) " / "; color: var(--accent); }
+
+/* Hero */
+.hero { border-top: 0; padding: clamp(48px, 10vh, 120px) 0 clamp(40px, 6vw, 64px); }
+.badge {
+  display: inline-flex; align-items: center; gap: 8px; font: 600 .68rem var(--mono); text-transform: uppercase; letter-spacing: .12em;
+  padding: 5px 10px; border-radius: 2px; border: 1px dashed var(--border); color: var(--muted);
+}
+.badge.live { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); background: var(--accent-soft); }
+.badge.live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 2s ease-in-out infinite; }
+.badge.stale { border: 1px solid var(--warn); color: var(--warn); }
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* O rio: nascente -> correnteza -> foz */
+.river-sec { padding-top: 0; border-top: 0; }
+.river { position: relative; display: grid; gap: 56px; margin-top: 8px; }
+@media (min-width: 980px) { .river { grid-template-columns: repeat(3, 1fr); gap: 72px; } }
+.pipes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
+.pipes .wall { fill: none; stroke: var(--border); stroke-linecap: round; }
+.pipes .stream { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 6 14; opacity: .75; animation: dash var(--flow-dur) linear infinite; }
+.pipes .drop { fill: var(--accent); filter: drop-shadow(0 0 4px var(--accent-glow)); }
+.pipes .drop.out { fill: var(--text); }
+@keyframes dash { to { stroke-dashoffset: -40; } }
+.paused .pipes .stream { animation-play-state: paused; opacity: .3; }
+
+.stage {
+  position: relative; z-index: 1; display: flex; flex-direction: column; gap: 18px; min-width: 0;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--border); border-radius: 2px; padding: clamp(18px, 2.2vw, 26px);
+  transition: border-color .3s, box-shadow .3s;
+}
+.stage:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.stage.hl { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 1px var(--accent-soft), 0 18px 48px -24px var(--accent-glow); }
+.stage-head { display: flex; flex-wrap: wrap-reverse; align-items: flex-start; justify-content: space-between; gap: 10px 12px; }
+.stage-head h3 { font: 400 1.7rem/1.05 var(--serif); margin: 4px 0 0; }
+.step { font: 600 .72rem var(--mono); color: var(--accent); letter-spacing: .1em; }
+.chip { font: 500 .7rem var(--mono); padding: 4px 8px; border-radius: 2px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.chip.on { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-soft); color: var(--text); }
+
+/* medidor de vazao */
+.meter { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); padding: 16px; }
+.liquid { position: absolute; inset: auto 0 0 0; height: 0; background: linear-gradient(to top, var(--accent-soft), transparent); transition: height 1.2s cubic-bezier(.2,.7,.2,1); pointer-events: none; }
+.liquid svg { position: absolute; top: -9px; left: 0; width: 200%; height: 10px; color: var(--accent-soft); animation: wave 4s linear infinite; }
+@keyframes wave { to { transform: translateX(-50%); } }
+.meter-row { position: relative; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.big { font: 400 clamp(2.6rem, 5vw, 3.4rem)/1 var(--serif); letter-spacing: -.02em; }
+.big small { font: 500 .72rem var(--mono); color: var(--accent); letter-spacing: .04em; margin-left: 6px; }
+.bars { position: relative; display: flex; align-items: flex-end; gap: 3px; height: 34px; margin-top: 14px; }
+.bars i { flex: 1; min-height: 2px; background: color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 1px 1px 0 0; transition: height .8s ease; }
+.bars i.now { background: var(--accent); }
+.bars i.gap { background: transparent; border-bottom: 1px dashed var(--border); }
+.caption { font: 400 .74rem/1.5 var(--mono); color: var(--muted); margin: 0; }
+
+/* correnteza: janela HOP deslizando */
+.track { position: relative; display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; height: 30px; }
+.track span { background: var(--surface-2); border-radius: 1px; }
+.track .win {
+  position: absolute; top: -5px; bottom: -5px; left: 0; width: calc(5 / 12 * 100%);
+  border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 2px;
+  transition: left 1s cubic-bezier(.2,.7,.2,1);
+}
+.track-axis { display: flex; justify-content: space-between; font: 500 .66rem var(--mono); color: var(--muted); margin-top: 8px; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin: 0; font: 400 .8rem var(--mono); }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; }
+.kv dd.warn { color: var(--warn); }
+
+/* foz: chegada dos termos */
+.foz-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.foz-list li {
+  display: grid; grid-template-columns: 2.2em 1fr auto; align-items: baseline; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg);
+}
+.foz-list .pos { font: 600 .72rem var(--mono); color: var(--muted); }
+.foz-list li:first-child .pos { color: var(--accent); }
+.foz-list .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foz-list .t.hash::before { content: "#"; color: var(--accent); opacity: .8; }
+.foz-list .n { font: 500 .78rem var(--mono); color: var(--muted); }
+.arrive { animation: arrive .9s cubic-bezier(.22,1,.36,1) both; }
+@keyframes arrive {
+  0% { opacity: 0; transform: translateX(-14px); border-color: var(--accent); box-shadow: 0 0 0 0 var(--accent-glow); }
+  45% { opacity: 1; transform: none; box-shadow: 0 0 22px 2px var(--accent-soft); }
+  100% { border-color: var(--border); box-shadow: none; }
+}
+.ripple-anchor { position: relative; display: inline-flex; }
+.ring { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 1.5px solid var(--accent); border-radius: 50%; animation: ring 1.1s ease-out forwards; pointer-events: none; }
+@keyframes ring { from { transform: scale(.4); opacity: .9; } to { transform: scale(2.8); opacity: 0; } }
+.empty { font: 400 .8rem/1.5 var(--mono); color: var(--muted); border: 1px dashed var(--border); border-radius: 2px; padding: 14px; margin: 0; }
+
+/* Em alta */
+.cols { display: grid; gap: 16px; margin-top: 36px; }
+@media (min-width: 860px) { .cols { grid-template-columns: 1fr 1fr; } }
+.panel { border: 1px solid var(--border); border-radius: 2px; background: color-mix(in srgb, var(--surface) 90%, transparent); }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.rank { list-style: none; margin: 0; padding: 0; }
+.rank li {
+  display: grid; grid-template-columns: 2em minmax(0, 1fr) 88px 4.2em; align-items: center; gap: 12px;
+  padding: 11px 18px; border-bottom: 1px solid var(--border);
+}
+.rank li:last-child { border-bottom: 0; }
+.rank .pos { font: 600 .72rem var(--mono); color: var(--muted); }
+.rank .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.rank .t.hash::before { content: "#"; color: var(--accent); opacity: .8; }
+.rank .t small { display: block; font: 400 .7rem var(--mono); color: var(--muted); }
+.rank .n { text-align: right; font: 400 1.5rem/1 var(--serif); }
+.rank .n small { display: block; font: 500 .62rem var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-top: 4px; }
+.spark { width: 88px; height: 26px; display: block; overflow: visible; }
+.spark path.l { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.spark path.a { fill: var(--accent-soft); stroke: none; }
+.spark circle { fill: var(--accent); }
+.panel .empty { margin: 18px; }
+
+/* Volume */
+.chart-box { position: relative; margin-top: 32px; border: 1px solid var(--border); border-radius: 2px; background: color-mix(in srgb, var(--surface) 90%, transparent); padding: 18px 18px 8px; }
+.chart { display: block; width: 100%; height: clamp(200px, 32vw, 300px); overflow: visible; touch-action: pan-y; }
+.chart .grid line { stroke: var(--border); }
+.chart .axis text { fill: var(--muted); font: 500 10px var(--mono); }
+.chart .area { fill: var(--accent-soft); }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+.chart .peak circle { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
+.chart .peak text { fill: var(--text); font: 600 11px var(--mono); }
+.chart .cross line { stroke: var(--muted); stroke-dasharray: 3 3; }
+.chart .cross circle { fill: var(--accent); }
+.tip {
+  position: absolute; pointer-events: none; transform: translate(-50%, -100%); margin-top: -10px;
+  font: 500 .74rem/1.4 var(--mono); background: var(--text); color: var(--bg); padding: 6px 9px; border-radius: 2px; white-space: nowrap;
+}
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; }
+
+/* Como funciona */
+.how { display: grid; gap: 16px; margin-top: 36px; }
+@media (min-width: 900px) { .how { grid-template-columns: repeat(3, 1fr); } }
+.card { border: 1px solid var(--border); border-radius: 2px; padding: clamp(18px, 2.2vw, 26px); background: color-mix(in srgb, var(--surface) 90%, transparent); min-width: 0; }
+.card h3 { font: 400 1.5rem/1.15 var(--serif); margin-bottom: 8px; }
+.card p { color: var(--muted); margin: 0 0 12px; }
+.card pre { margin: 0; overflow-x: auto; font: 400 .74rem/1.55 var(--mono); background: var(--bg); border: 1px solid var(--border); border-radius: 2px; padding: 12px; color: var(--text); }
+.hop { margin-top: 16px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); padding: 16px; overflow-x: auto; }
+.hop svg { display: block; min-width: 560px; width: 100%; height: auto; }
+.hop .tick { stroke: var(--border); }
+.hop text { fill: var(--muted); font: 500 10px var(--mono); }
+.hop .w rect { fill: var(--surface-2); stroke: var(--border); }
+.hop .w.last rect { fill: var(--accent-soft); stroke: var(--accent); }
+.hop .w.last text { fill: var(--accent); }
+.hop .tb rect { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; }
+.hop .ev { fill: var(--text); opacity: .55; }
+.hop .wm { stroke: var(--accent); stroke-dasharray: 4 3; }
+.hop .wm-t { fill: var(--accent); }
+ul.check { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 8px 40px; }
+@media (min-width: 900px) { ul.check { grid-template-columns: 1fr 1fr; } }
+ul.check li { position: relative; padding-left: 1.6em; color: var(--muted); }
+ul.check li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-family: var(--mono); font-size: .85em; }
+
+footer { padding: 32px 0 48px; border-top: 1px solid var(--border); color: var(--muted); font: 400 .78rem/1.7 var(--mono); }
+footer p { max-width: 80ch; margin: 0 0 10px; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .pipes .stream, .badge.live::before, .liquid svg { animation: none; }
+  .arrive, .ring { animation: none; }
+}
+
+/* ---------- painel /historico/ ---------- */
+.heat { display: grid; grid-template-columns: 3.2em repeat(24, minmax(0, 1fr)); gap: 3px; margin-top: 26px; }
+.heat .d { font: 500 .68rem var(--mono); color: var(--muted); display: flex; align-items: center; }
+.heat .h { font: 500 .62rem var(--mono); color: var(--muted); text-align: center; padding-bottom: 4px; }
+.heat i { aspect-ratio: 1; border-radius: 1px; background: var(--accent); display: block; }
+.heat i.off { background: var(--surface-2); }
+.heat-scale { display: flex; align-items: center; gap: 8px; margin-top: 14px; font: 500 .68rem var(--mono); color: var(--muted); }
+.heat-legend { display: flex; gap: 2px; }
+.heat-legend b { width: 14px; height: 10px; border-radius: 1px; background: var(--accent); display: block; }
+
+.grow { display: grid; gap: 10px; margin-top: 26px; }
+.grow .row {
+  display: grid; grid-template-columns: 2.2em minmax(0, 1fr) 92px 5.4em; align-items: center; gap: 14px;
+  padding: 12px 16px; border: 1px solid var(--border); border-radius: 2px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+.grow .row:first-child { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.grow .pos { font: 600 .72rem var(--mono); color: var(--muted); }
+.grow .row:first-child .pos { color: var(--accent); }
+.grow .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.grow .t.hash::before { content: "#"; color: var(--accent); opacity: .8; }
+.grow .t small { display: block; font: 400 .7rem var(--mono); color: var(--muted); }
+.grow .spark { width: 92px; height: 26px; }
+.grow .r { text-align: right; font: 400 1.35rem/1 var(--serif); }
+.grow .r small { display: block; font: 500 .6rem var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-top: 4px; }
+.grow .r.up { color: var(--accent); }
+
+.tiles { display: grid; gap: 14px; margin-top: 26px; }
+@media (min-width: 760px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+.tile { border: 1px solid var(--border); border-radius: 2px; padding: 18px; background: color-mix(in srgb, var(--surface) 90%, transparent); }
+.tile .v { font: 400 clamp(1.7rem, 3vw, 2.2rem)/1 var(--serif); font-variant-numeric: tabular-nums; }
+.tile .v small { font: 500 .66rem var(--mono); color: var(--accent); margin-left: 5px; letter-spacing: .04em; }
+.tile .l { font: 500 .66rem var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 8px; }
+
+.sql { margin: 0; overflow-x: auto; font: 400 .74rem/1.6 var(--mono); background: var(--bg);
+       border: 1px solid var(--border); border-radius: 2px; padding: 14px; color: var(--text); }
+.sql .k { color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/">bluesky-trends</a>
+    <nav class="tabs" aria-label="Páginas do bluesky-trends">
+      <a href="/">Última hora</a>
+      <a href="/flink/">Janelas do Flink</a>
+      <a href="/historico/" aria-current="page">Histórico</a>
+    </nav>
+    <a class="ext" href="https://jvcamacho.dev/" rel="noopener">Portfólio ↗</a>
+    <button type="button" class="btn-icon" id="theme-toggle" aria-label="Alternar tema claro e escuro">◐</button>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Fase 3 · ClickHouse · ReplacingMergeTree</p>
+      <h1>O que ficou guardado, <em>além da última hora</em>.</h1>
+      <p class="lead">As janelas que o Flink fecha viram linhas no ClickHouse, com sete dias de retenção para termos e trinta para volume. Esta página lê só o que está lá: crescimento contra a média das últimas 24 horas, o ritmo de cada hora da semana e o volume do dia.</p>
+      <span id="status" class="badge">carregando…</span>
+    </div>
+  </section>
+
+  <section id="numeros">
+    <div class="wrap">
+      <p class="eyebrow">O que o banco tem</p>
+      <h2>Números <em>do histórico</em></h2>
+      <div class="tiles">
+        <div class="tile"><div class="v num" id="t-linhas">—</div><div class="l">janelas de termos</div></div>
+        <div class="tile"><div class="v num" id="t-volume">—</div><div class="l">minutos de volume</div></div>
+        <div class="tile"><div class="v num" id="t-posts">—</div><div class="l">posts contados</div></div>
+        <div class="tile"><div class="v num" id="t-horas">—</div><div class="l">horas de histórico</div></div>
+      </div>
+      <p class="caption" id="desde" style="margin-top:14px"></p>
+    </div>
+  </section>
+
+  <section id="crescimento">
+    <div class="wrap">
+      <p class="eyebrow">Ordenação</p>
+      <h2>O que está <em>crescendo</em></h2>
+      <p class="lead" id="rank-lead">Comparando a última hora com a média da mesma janela nas últimas 24 horas.</p>
+      <div class="grow" id="grow"></div>
+      <p class="empty" id="grow-empty" hidden>O histórico ainda é curto para medir crescimento. A lista volta a aparecer quando houver algumas horas de janelas gravadas.</p>
+    </div>
+  </section>
+
+  <section id="ritmo">
+    <div class="wrap">
+      <p class="eyebrow">Semana</p>
+      <h2>Ritmo <em>da semana</em></h2>
+      <p class="lead">Média de posts por hora, dia da semana por hora do dia, no horário de Brasília. Mais escuro é mais movimento.</p>
+      <div class="heat" id="heat" role="img" aria-label="Mapa de calor de média de posts por hora e dia da semana"></div>
+      <div class="heat-scale" hidden id="heat-scale">
+        <span>menos</span>
+        <div class="heat-legend" id="heat-legend"></div>
+        <span>mais</span>
+      </div>
+      <p class="empty" id="heat-empty" hidden>Ainda não há volume suficiente para desenhar a semana.</p>
+    </div>
+  </section>
+
+  <section id="volume">
+    <div class="wrap">
+      <p class="eyebrow">Dia</p>
+      <h2>Volume <em>por hora</em></h2>
+      <div class="chart-box">
+        <svg class="chart" id="chart" viewBox="0 0 720 260" role="img" aria-labelledby="chart-title">
+          <title id="chart-title">Posts por hora nas últimas 24 horas, a partir do ClickHouse</title>
+        </svg>
+      </div>
+      <p class="empty" id="chart-empty" hidden>Sem volume gravado nas últimas 24 horas.</p>
+    </div>
+  </section>
+
+  <section id="como">
+    <div class="wrap">
+      <p class="eyebrow">Método</p>
+      <h2>Como <em>funciona</em></h2>
+      <div class="how">
+        <div class="card">
+          <h3>O que entra</h3>
+          <p>As mesmas janelas da página <a href="/flink/">Janelas do Flink</a>, gravadas em duas tabelas do ClickHouse.</p>
+          <pre class="sql"><span class="k">CREATE TABLE</span> bluesky.trending_terms
+  ENGINE = ReplacingMergeTree(ingested_at)
+  ORDER BY (window_start, kind, term)
+  TTL window_start + INTERVAL 7 DAY;</pre>
+        </div>
+        <div class="card">
+          <h3>Por que não duplica</h3>
+          <p>O Flink regrava a mesma janela enquanto chegam posts dela. O <code>ReplacingMergeTree</code> guarda a versão mais nova de cada chave, então reenviar não infla a contagem.</p>
+          <pre class="sql"><span class="k">SELECT</span> term, sum(authors) <span class="k">AS</span> autores
+<span class="k">FROM</span> bluesky.trending_terms
+<span class="k">WHERE</span> window_start &gt;= ultima - <span class="k">INTERVAL</span> 60 <span class="k">MINUTE</span>
+<span class="k">GROUP BY</span> term <span class="k">ORDER BY</span> autores <span class="k">DESC</span>;</pre>
+        </div>
+        <div class="card">
+          <h3>Crescimento</h3>
+          <p>Um termo sobe quando aparece mais agora do que costuma aparecer. O <code>+5</code> evita que um termo inédito domine a lista por dividir por zero.</p>
+          <pre class="sql">ratio = (autores na última hora + 5)
+      / (média da mesma hora nas últimas 24h + 5)</pre>
+        </div>
+      </div>
+      <ul class="check">
+        <li>Só agregados: o banco não guarda texto de post, <code>did</code>, <code>uri</code> nem <code>rkey</code>.</li>
+        <li>Retenção de 7 dias para termos e 30 para volume; o disco não cresce sem fim.</li>
+        <li>O ClickHouse roda com limite de memória abaixo do limite do container.</li>
+        <li>A página lê um JSON estático: nenhuma consulta ao banco sai do servidor.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Método: mesma base do painel principal, agora com memória. O idioma é o declarado pelo aplicativo do autor; conteúdo adulto marcado pelo autor e termos da lista de bloqueio ficam fora de todos os números.</p>
+    <p>bluesky-trends · <a href="/">painel principal</a> · <a href="/flink/">janelas do Flink</a> · <a href="https://jvcamacho.dev/" rel="noopener">jvcamacho.dev</a></p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var DATA_URL = "/historico.json";
+  var REFRESH_MS = 60000;
+  var STALE_S = 600;
+  var SVG = "http://www.w3.org/2000/svg";
+  var $ = function (id) { return document.getElementById(id); };
+  var nf = new Intl.NumberFormat("pt-BR");
+  var hm = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+  var DAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function sv(tag, attrs, text) {
+    var n = document.createElementNS(SVG, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function fmt(n) { return n == null ? "—" : nf.format(n); }
+  function dec(n) { return n == null ? "—" : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(n); }
+  function time(iso) { return iso ? hm.format(new Date(iso)) : "—"; }
+
+  $("theme-toggle").addEventListener("click", function () {
+    var d = document.documentElement;
+    var dark = d.dataset.theme !== "light";
+    d.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("theme", d.dataset.theme); } catch (e) {}
+  });
+
+  function setStatus(data) {
+    var badge = $("status");
+    var gerado = data && data.generated_at ? new Date(data.generated_at) : null;
+    if (!gerado || isNaN(gerado)) {
+      badge.className = "badge";
+      badge.textContent = "sem dados ainda";
+      return;
+    }
+    var idade = (Date.now() - gerado.getTime()) / 1000;
+    if (idade > STALE_S) {
+      badge.className = "badge stale";
+      badge.textContent = "desatualizado · " + Math.round(idade / 60) + " min";
+      return;
+    }
+    badge.className = "badge live";
+    badge.textContent = "atualizado há " + (idade < 90 ? Math.round(idade) + " s" : Math.round(idade / 60) + " min");
+  }
+
+  function spark(values) {
+    var svg = sv("svg", { "class": "spark", viewBox: "0 0 92 26", "aria-hidden": "true" });
+    if (!values || !values.length) return svg;
+    var max = Math.max.apply(null, values.concat([1]));
+    var step = values.length > 1 ? 92 / (values.length - 1) : 92;
+    var pts = values.map(function (v, i) { return [i * step, 25 - (v / max) * 23]; });
+    var d = pts.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
+    svg.appendChild(sv("path", { "class": "a", d: d + " L92 26 L0 26 Z" }));
+    svg.appendChild(sv("path", { "class": "l", d: d }));
+    var last = pts[pts.length - 1];
+    svg.appendChild(sv("circle", { cx: last[0].toFixed(1), cy: last[1].toFixed(1), r: "2" }));
+    return svg;
+  }
+
+  function renderTotals(data) {
+    var t = data.totals || {};
+    $("t-linhas").textContent = fmt(t.rows_trending);
+    $("t-volume").textContent = fmt(t.rows_volume);
+    $("t-posts").textContent = fmt(t.posts_total);
+    $("t-horas").textContent = dec(data.history_hours);
+    $("desde").textContent = t.since
+      ? "Primeira janela gravada às " + time(t.since) + " (Brasília). Retenção de 7 dias para termos e 30 para volume."
+      : "O banco ainda não recebeu janelas.";
+  }
+
+  function renderTrending(data) {
+    var box = $("grow");
+    box.replaceChildren();
+    var itens = data.trending || [];
+    var crescimento = data.ranking === "growth";
+    $("rank-lead").textContent = crescimento
+      ? "Comparando a última hora com a média da mesma janela nas últimas 24 horas."
+      : "Histórico curto ainda: a lista está ordenada por autores distintos na última hora. O crescimento aparece quando houver algumas horas gravadas.";
+    if (!itens.length) {
+      $("grow-empty").hidden = false;
+      return;
+    }
+    $("grow-empty").hidden = true;
+    itens.forEach(function (item, i) {
+      var row = el("div", "row");
+      row.appendChild(el("div", "pos", String(i + 1).padStart(2, "0")));
+      var t = el("div", "t" + (item.kind === "hashtag" ? " hash" : ""), item.term);
+      t.appendChild(el("small", null, item.kind === "hashtag" ? "hashtag" : "termo do texto"));
+      row.appendChild(t);
+      row.appendChild(spark(item.spark));
+      var r = el("div", "r");
+      if (crescimento && item.ratio != null) {
+        r.className = "r" + (item.ratio >= 1.5 ? " up" : "");
+        r.textContent = dec(item.ratio) + "×";
+        r.appendChild(el("small", null, "do normal"));
+      } else {
+        r.textContent = fmt(item.authors);
+        r.appendChild(el("small", null, "autores"));
+      }
+      row.appendChild(r);
+      box.appendChild(row);
+    });
+  }
+
+  function renderHeat(heat) {
+    var box = $("heat");
+    box.replaceChildren();
+    if (!heat || !heat.length) {
+      $("heat-empty").hidden = false;
+      $("heat-scale").hidden = true;
+      return;
+    }
+    $("heat-empty").hidden = true;
+    $("heat-scale").hidden = false;
+    var max = 0;
+    heat.forEach(function (line) { line.forEach(function (v) { if (v > max) max = v; }); });
+    box.appendChild(el("div", "d", ""));
+    for (var h = 0; h < 24; h++) {
+      box.appendChild(el("div", "h", h % 3 === 0 ? String(h).padStart(2, "0") : ""));
+    }
+    heat.forEach(function (line, dia) {
+      box.appendChild(el("div", "d", DAYS[dia] || ""));
+      line.forEach(function (v, hora) {
+        var cell = el("i", v > 0 ? "" : "off");
+        if (v > 0) cell.style.opacity = String(0.18 + 0.82 * (v / max));
+        cell.title = (DAYS[dia] || "") + " " + String(hora).padStart(2, "0") + "h · " + dec(v) + " posts/h";
+        box.appendChild(cell);
+      });
+    });
+    var legend = $("heat-legend");
+    legend.replaceChildren();
+    for (var i = 0; i <= 4; i++) {
+      var b = document.createElement("b");
+      b.style.opacity = String(0.18 + 0.82 * (i / 4));
+      legend.appendChild(b);
+    }
+  }
+
+  function renderChart(points) {
+    var svg = $("chart");
+    while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+    if (!points || !points.length) {
+      $("chart-empty").hidden = false;
+      return;
+    }
+    $("chart-empty").hidden = true;
+    var W = 720, H = 260, padL = 44, padR = 10, padT = 16, padB = 28;
+    var max = Math.max.apply(null, points.map(function (p) { return p.posts || 0; }).concat([1]));
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var x = function (i) { return padL + (i / Math.max(points.length - 1, 1)) * innerW; };
+    var y = function (v) { return padT + innerH - (v / max) * innerH; };
+
+    var grid = sv("g", { "class": "grid" });
+    [0, 0.5, 1].forEach(function (f) {
+      var gy = padT + innerH * f;
+      grid.appendChild(sv("line", { x1: padL, x2: W - padR, y1: gy, y2: gy }));
+    });
+    svg.appendChild(grid);
+
+    var d = points.map(function (p, i) { return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.posts || 0).toFixed(1); }).join(" ");
+    svg.appendChild(sv("path", { "class": "area", d: d + " L" + x(points.length - 1).toFixed(1) + " " + y(0) + " L" + x(0).toFixed(1) + " " + y(0) + " Z" }));
+    svg.appendChild(sv("path", { "class": "line", d: d }));
+
+    var axis = sv("g", { "class": "axis" });
+    [0, Math.round(max / 2), max].forEach(function (tick) {
+      axis.appendChild(sv("text", { x: padL - 8, y: y(tick) + 4, "text-anchor": "end" }, String(tick)));
+    });
+    [0, Math.floor(points.length / 2), points.length - 1].forEach(function (i) {
+      axis.appendChild(sv("text", {
+        x: x(i), y: H - 8,
+        "text-anchor": i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"
+      }, time(points[i].t)));
+    });
+    svg.appendChild(axis);
+
+    var peak = { posts: -1, i: 0 };
+    points.forEach(function (p, i) { if ((p.posts || 0) > peak.posts) peak = { posts: p.posts || 0, i: i }; });
+    if (peak.posts > 0) {
+      var g = sv("g", { "class": "peak" });
+      g.appendChild(sv("circle", { cx: x(peak.i).toFixed(1), cy: y(peak.posts).toFixed(1), r: "4" }));
+      g.appendChild(sv("text", {
+        x: x(peak.i).toFixed(1), y: (y(peak.posts) - 10).toFixed(1), "text-anchor": "middle"
+      }, fmt(peak.posts) + " posts"));
+      svg.appendChild(g);
+    }
+  }
+
+  function render(data) {
+    setStatus(data);
+    renderTotals(data);
+    renderTrending(data);
+    renderHeat(data.heatmap);
+    renderChart(data.volume);
+  }
+
+  function load() {
+    fetch(DATA_URL, { cache: "no-store" })
+      .then(function (res) { if (!res.ok) throw new Error(res.status); return res.json(); })
+      .then(render)
+      .catch(function () {
+        var badge = $("status");
+        badge.className = "badge";
+        badge.textContent = "sem dados ainda";
+      });
+  }
+
+  load();
+  setInterval(load, REFRESH_MS);
+})();
+</script>
+</body>
+</html>
