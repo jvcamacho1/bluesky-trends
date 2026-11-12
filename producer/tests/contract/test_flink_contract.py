@@ -112,3 +112,69 @@ def test_flink_tem_heap_explicito():
         assert re.search(
             r"(jobmanager|taskmanager)\.memory\.process\.size: \d+m", props
         ), nome
+
+
+def test_jobs_tiram_post_com_rotulo_adulto():
+    # ADR-012: post marcado pelo autor sai de todos os agregados publicos
+    for name in ("03_jobs.sql", "04_volume.sql", "05_terms.sql"):
+        sql = _sql(name)
+        for label in ("porn", "sexual", "nudity", "graphic-media"):
+            assert f"self_labels, '{label}')" in sql, (name, label)
+
+
+def test_submit_nao_duplica_jobs_em_execucao():
+    script = (FLINK_DIR / "submit.sh").read_text(encoding="utf-8")
+    assert "flink list -r" in script
+    assert "(RUNNING)" in script
+    # a checagem vem antes de qualquer submissao
+    assert script.index("(RUNNING)") < script.index("submit 03_jobs.sql")
+
+
+def test_deploy_submete_os_jobs_e_publica_a_pagina_do_flink():
+    deploy = (REPO_ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+    assert "/opt/submit.sh" in deploy
+    assert "public/flink/index.html" in deploy
+    assert deploy.index("docker compose up") < deploy.index("/opt/submit.sh")
+
+
+def test_flink_export_no_compose_sem_porta_e_com_limites():
+    compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    service = compose["services"]["flink-export"]
+    assert "ports" not in service
+    assert service["command"] == ["python", "-m", "producer.flink_export"]
+    assert service["environment"]["FLINK_OUTPUT"] == "/public/flink.json"
+    limits = service["deploy"]["resources"]["limits"]
+    assert limits["memory"] and limits["cpus"]
+
+
+def _location(conf: str, path: str) -> str:
+    match = re.search(
+        r"location = " + re.escape(path) + r" \{(.*?)\n    \}", conf, re.S
+    )
+    assert match, f"location = {path} ausente"
+    return match.group(1)
+
+
+def test_nginx_serve_a_pagina_do_flink_sem_senha():
+    conf = (REPO_ROOT / "deploy" / "nginx-bluesky-trends.conf").read_text(
+        encoding="utf-8"
+    )
+    page = _location(conf, "/flink/")
+    data = _location(conf, "/flink.json")
+    assert "try_files /flink/index.html" in page
+    assert "max-age=300" in page
+    assert "max-age=30" in data
+    for block in (page, data):
+        assert "auth_basic" not in block
+
+
+def test_pagina_do_flink_so_usa_textcontent_e_le_o_flink_json():
+    html = (REPO_ROOT / "docs" / "flink.html").read_text(encoding="utf-8")
+    assert "inner" + "HTML" not in html
+    assert "outer" + "HTML" not in html
+    assert "insertAdjacentHTML" not in html
+    assert "document.write" not in html
+    assert '"/flink.json"' in html
+    assert "textContent" in html
+    # sem script de terceiros: so as fontes do portfolio vem de fora
+    assert not re.search(r"<script[^>]+src=", html)

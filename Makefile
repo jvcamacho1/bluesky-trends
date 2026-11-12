@@ -45,8 +45,9 @@ export-dashboard: ## Exporta dados do topico para docs/data.json (painel interno
 	cd producer && $(PY) -m producer.export_dashboard --output ../docs/data.json
 
 dashboard-deploy: ## Publica as paginas estaticas (publica e interna)
-	mkdir -p $(DASHBOARD_DIR) $(PRIVATE_DIR)
+	mkdir -p $(DASHBOARD_DIR)/flink $(PRIVATE_DIR)
 	install -m 644 docs/public.html $(DASHBOARD_DIR)/index.html
+	install -m 644 docs/flink.html $(DASHBOARD_DIR)/flink/index.html
 	install -m 644 docs/index.html $(PRIVATE_DIR)/index.html
 
 flink-submit: ## Submete os jobs de trending no cluster Flink

@@ -38,8 +38,9 @@ echo "==> publicando as paginas (publica e interna)"
 ssh "${SSH_OPTS[@]}" "$HOST" bash -s -- "$REMOTE_PATH" <<'REMOTE'
 set -euo pipefail
 REMOTE_PATH="$1"
-mkdir -p "$REMOTE_PATH/public" "$REMOTE_PATH/private"
+mkdir -p "$REMOTE_PATH/public/flink" "$REMOTE_PATH/private"
 install -m 644 "$REMOTE_PATH/docs/public.html" "$REMOTE_PATH/public/index.html"
+install -m 644 "$REMOTE_PATH/docs/flink.html" "$REMOTE_PATH/public/flink/index.html"
 install -m 644 "$REMOTE_PATH/docs/index.html" "$REMOTE_PATH/private/index.html"
 REMOTE
 
@@ -82,6 +83,9 @@ REMOTE_PATH="\$1"
 cd "\$REMOTE_PATH"
 docker compose up -d --build --remove-orphans
 docker compose ps
+# jobs do Flink: o submit.sh nao faz nada se eles ja estao rodando, e
+# resubmete quando o jobmanager foi recriado (SQL novo, reinicio)
+docker compose exec -T flink-jobmanager /opt/submit.sh
 REMOTE
 
 echo "==> pronto: https://blueskytrends.jvcamacho.dev/"

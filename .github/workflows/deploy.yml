@@ -73,6 +73,7 @@ jobs:
       - name: "Pagina publica: sem innerHTML e sem CDN"
         run: |
           ! grep -q "innerHTML" docs/public.html
+          ! grep -q "innerHTML" docs/flink.html
           ! grep -qE "https?://(cdn|unpkg|fonts\.googleapis)" docs/public.html
 
   deploy:
