@@ -1,0 +1,48 @@
+# Fase 2: cluster Flink (jobmanager + taskmanager) e o job de trending.
+# Incluido pelo docker-compose.yml principal; nada aqui publica porta fora de
+# 127.0.0.1, e os limites somam 4 GB / 1,4 CPU.
+services:
+  flink-jobmanager:
+    build:
+      context: ./flink
+    container_name: bluesky-trends-flink-jobmanager
+    restart: unless-stopped
+    command: jobmanager
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8082:8081"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1024m
+        parallelism.default: 1
+    deploy:
+      resources:
+        limits:
+          memory: 1792m
+          cpus: "0.4"
+
+  flink-taskmanager:
+    build:
+      context: ./flink
+    container_name: bluesky-trends-flink-taskmanager
+    restart: unless-stopped
+    command: taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_started
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.memory.process.size: 1536m
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 1
+    deploy:
+      resources:
+        limits:
+          memory: 1792m
+          cpus: "0.5"
