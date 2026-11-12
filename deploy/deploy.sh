@@ -43,26 +43,43 @@ install -m 644 "$REMOTE_PATH/docs/public.html" "$REMOTE_PATH/public/index.html"
 install -m 644 "$REMOTE_PATH/docs/index.html" "$REMOTE_PATH/private/index.html"
 REMOTE
 
+# Uma sessao ssh nao carrega o ~/.bashrc, entao o PATH do Docker rootless
+# (~/bin) e o DOCKER_HOST precisam ser montados aqui. O socket fica em
+# /run/user/<uid>/docker.sock, que so existe com o daemon do usuario ativo.
+REMOTE_ENV='export PATH="$HOME/bin:$PATH"; export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"'
+
 echo "==> conferindo o Docker rootless"
-ssh "${SSH_OPTS[@]}" "$HOST" bash -s <<'REMOTE'
+ssh "${SSH_OPTS[@]}" "$HOST" bash -s <<REMOTE
 set -euo pipefail
-if ! docker info >/dev/null 2>&1; then
-  echo "docker indisponivel para este usuario. Rode como deploy:"
-  echo "  systemctl --user start docker && export DOCKER_HOST=unix://\$XDG_RUNTIME_DIR/docker.sock"
+$REMOTE_ENV
+if ! command -v docker >/dev/null 2>&1; then
+  echo "docker nao encontrado em \$HOME/bin. Instale o Docker rootless (README, passo 3)."
   exit 1
 fi
-if docker info --format '{{.CgroupDriver}}' | grep -qv '^systemd$'; then
+if ! docker info >/dev/null 2>&1; then
+  echo "daemon rootless parado; tentando iniciar o servico do usuario"
+  systemctl --user start docker || true
+  sleep 5
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "docker indisponivel para este usuario mesmo com DOCKER_HOST=\$DOCKER_HOST"
+  echo "verifique: systemctl --user status docker e loginctl show-user \$(id -un) -p Linger"
+  exit 1
+fi
+if [ "\$(docker info --format '{{.CgroupDriver}}')" != "systemd" ]; then
   echo "cgroup driver nao e systemd: os limites de memoria/CPU do Compose nao valem."
   echo "habilite a delegacao de cgroup v2 (ver README, passo 4)."
   exit 1
 fi
+echo "docker rootless ok: \$(docker info --format '{{.ServerVersion}}')"
 REMOTE
 
 echo "==> subindo a stack"
-ssh "${SSH_OPTS[@]}" "$HOST" bash -s -- "$REMOTE_PATH" <<'REMOTE'
+ssh "${SSH_OPTS[@]}" "$HOST" bash -s -- "$REMOTE_PATH" <<REMOTE
 set -euo pipefail
-REMOTE_PATH="$1"
-cd "$REMOTE_PATH"
+$REMOTE_ENV
+REMOTE_PATH="\$1"
+cd "\$REMOTE_PATH"
 docker compose up -d --build --remove-orphans
 docker compose ps
 REMOTE
