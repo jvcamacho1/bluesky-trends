@@ -72,15 +72,28 @@ code { font-family: var(--mono); font-size: .84em; background: var(--surface-2);
 }
 .topbar .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
 .brand { font: 400 1.35rem/1 var(--serif); text-decoration: none; margin-right: auto; white-space: nowrap; }
-.nav { display: flex; gap: 22px; }
-.nav a { color: var(--muted); text-decoration: none; font: 500 .72rem var(--mono); text-transform: uppercase; letter-spacing: .1em; }
-.nav a:hover, .nav a[aria-current="page"] { color: var(--accent); }
+/* navegacao entre as paginas: abas segmentadas, como o seletor de idioma do portfolio */
+.tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 2px; overflow: hidden; }
+.tabs a {
+  display: inline-flex; align-items: center; height: 32px; padding: 0 14px; text-decoration: none;
+  color: var(--muted); font: 600 .7rem var(--mono); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.tabs a + a { border-left: 1px solid var(--border); }
+.tabs a:hover { color: var(--accent); }
+.tabs a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+.ext { color: var(--muted); text-decoration: none; font: 500 .7rem var(--mono); text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; }
+.ext:hover { color: var(--accent); }
 .btn-icon {
   border: 1px solid var(--border); border-radius: 2px; background: transparent; color: var(--muted);
   height: 32px; min-width: 34px; font-size: .95rem; cursor: pointer;
 }
 .btn-icon:hover { color: var(--accent); border-color: var(--accent); }
-@media (max-width: 520px) { .nav .opt { display: none; } }
+@media (max-width: 760px) { .ext { display: none; } }
+@media (max-width: 560px) {
+  .topbar .wrap { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; row-gap: 10px; }
+  .tabs { order: 3; width: 100%; }
+  .tabs a { flex: 1; justify-content: center; padding: 0 8px; }
+}
 
 /* Tipografia */
 h1, h2, h3 { margin: 0 0 16px; }
@@ -262,11 +275,11 @@ footer p { max-width: 80ch; margin: 0 0 10px; }
 <header class="topbar">
   <div class="wrap">
     <a class="brand" href="/">bluesky-trends</a>
-    <nav class="nav" aria-label="Principal">
-      <a class="opt" href="/">Painel</a>
-      <a href="/flink/" aria-current="page">Flink</a>
-      <a class="opt" href="https://jvcamacho.dev/" rel="noopener">Portfólio</a>
+    <nav class="tabs" aria-label="Páginas do bluesky-trends">
+      <a href="/">Última hora</a>
+      <a href="/flink/" aria-current="page">Janelas do Flink</a>
     </nav>
+    <a class="ext" href="https://jvcamacho.dev/" rel="noopener">Portfólio ↗</a>
     <button type="button" class="btn-icon" id="theme-toggle" aria-label="Alternar tema claro e escuro">◐</button>
   </div>
 </header>

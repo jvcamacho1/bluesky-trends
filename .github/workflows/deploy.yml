@@ -74,7 +74,8 @@ jobs:
         run: |
           ! grep -q "innerHTML" docs/public.html
           ! grep -q "innerHTML" docs/flink.html
-          ! grep -qE "https?://(cdn|unpkg|fonts\.googleapis)" docs/public.html
+          # fontes do Google Fonts sao permitidas (as mesmas do portfolio); script de CDN nao
+          ! grep -qE "<script[^>]+src=" docs/public.html docs/flink.html
 
   deploy:
     name: Sincronizar e subir na VPS
