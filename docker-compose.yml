@@ -34,11 +34,13 @@ services:
           memory: 768m
           cpus: "0.4"
     healthcheck:
+      # na VPS o kafka-topics leva mais de 10 s enquanto o broker recupera o
+      # log de metadados; timeout curto marcava unhealthy com o broker saudavel
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 30s
+      interval: 20s
+      timeout: 45s
+      retries: 30
+      start_period: 180s
 
   kafka-init:
     image: confluentinc/cp-kafka:7.7.1
@@ -89,11 +91,12 @@ services:
           memory: 384m
           cpus: "0.2"
     healthcheck:
+      # mesma razao do kafka: o primeiro heartbeat demora na VPS
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8081'"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 30s
+      interval: 20s
+      timeout: 30s
+      retries: 20
+      start_period: 120s
 
   producer:
     build:
