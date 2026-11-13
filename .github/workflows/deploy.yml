@@ -123,8 +123,11 @@ jobs:
           esac
           echo "VPS_HOST=$host" >> "$GITHUB_ENV"
           echo "VPS_USER=$user" >> "$GITHUB_ENV"
+          # o valor limpo pode diferir do secret e sair da mascara; o deploy.sh
+          # imprime o destino do rsync, entao mascara de novo
+          echo "::add-mask::$host"
+          echo "::add-mask::$user"
           echo "VPS_PORT=$port" >> "$GITHUB_ENV"
-          echo "host=$host user=$user port=$port"
 
       - name: Preparar chave ssh
         env:
