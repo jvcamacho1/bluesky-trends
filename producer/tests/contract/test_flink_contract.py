@@ -42,6 +42,16 @@ def test_watermark_usa_tempo_de_evento():
     )
 
 
+def test_tempo_de_evento_tem_teto_no_ingest_time():
+    # post com relogio adiantado nao pode empurrar o watermark para o futuro:
+    # se o createdAt passa do ingest_time + 1 min, a janela usa o ingest_time
+    sql = _sql("01_sources.sql")
+    ts = sql.split("ts AS CASE")[1].split("WATERMARK")[0]
+    assert "+ INTERVAL '1' MINUTE" in ts
+    assert "THEN CAST(SUBSTRING(REPLACE(REPLACE(ingest_time" in ts
+    assert "ELSE CAST(SUBSTRING(REPLACE(REPLACE(event_time" in ts
+
+
 def test_janelas_hop_e_tumble():
     hashtags = _sql("03_jobs.sql")
     termos = _sql("05_terms.sql")
