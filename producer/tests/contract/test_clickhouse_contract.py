@@ -85,6 +85,29 @@ def test_ch_export_le_so_agregados_e_nao_inventa_zero():
     assert "if not rows:\n        return None" in fonte
 
 
+def test_heatmap_agrupa_no_horario_de_brasilia():
+    # a pagina diz "horario de Brasilia"; a coluna e DateTime('UTC')
+    import producer.ch_export as modulo
+
+    consultas = []
+
+    def fake_query(_url, sql):
+        consultas.append(sql)
+        return [{"dia": 0, "hora": 21, "media": 10.0}]
+
+    original = modulo.query
+    modulo.query = fake_query
+    try:
+        grade = modulo.heatmap("http://clickhouse:8123")
+    finally:
+        modulo.query = original
+
+    sql = consultas[0]
+    assert "toDayOfWeek(toTimeZone(window_start, 'America/Sao_Paulo'), 1)" in sql
+    assert "toHour(toTimeZone(window_start, 'America/Sao_Paulo'))" in sql
+    assert grade[0][21] == 10.0
+
+
 def test_historico_json_nao_vaza_dado_bruto():
 
     def fake_query(_url, sql):

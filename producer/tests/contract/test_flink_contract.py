@@ -4,9 +4,13 @@ Nao sobe cluster: le os arquivos e confere as regras que, se quebrarem, so
 aparecem em producao (formato do topico, watermark, janelas, orcamento).
 """
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -124,10 +128,96 @@ def test_jobs_tiram_post_com_rotulo_adulto():
 
 def test_submit_nao_duplica_jobs_em_execucao():
     script = (FLINK_DIR / "submit.sh").read_text(encoding="utf-8")
-    assert "flink list -r" in script
-    assert "(RUNNING)" in script
-    # a checagem vem antes de qualquer submissao
-    assert script.index("(RUNNING)") < script.index("submit 03_jobs.sql")
+    assert "list -r" in script
+    # cada job tem nome fixo, e a checagem e por nome, nao por "ha algum job"
+    assert "pipeline.name" in script
+    assert 'grep -qF " : $name ("' in script
+    # chamada manual e vigia nao podem submeter ao mesmo tempo
+    assert "flock" in script
+
+
+FAKE_FLINK = """#!/usr/bin/env bash
+# so responde ao "flink list": -r devolve os jobs vivos do arquivo
+if [ "$2" = "-r" ]; then
+  echo "------------------ Running/Restarting Jobs -------------------"
+  cat "$SUBMIT_WORK_DIR/vivos.txt"
+fi
+"""
+
+FAKE_SQL_CLIENT = """#!/usr/bin/env bash
+# anota o pipeline.name de cada job submetido
+grep -o "pipeline.name' = '[^']*" "$2" | sed "s/.*'//" >> "$SUBMIT_WORK_DIR/submetidos"
+"""
+
+
+def _fake_flink(tmp_path: Path, vivos: list[str]) -> Path:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (tmp_path / "vivos.txt").write_text(
+        "".join(
+            f"17.11.2026 18:00:00 : abc{i} : {nome} (RUNNING)\n"
+            for i, nome in enumerate(vivos)
+        ),
+        encoding="utf-8",
+    )
+    (bin_dir / "flink").write_text(FAKE_FLINK, encoding="utf-8")
+    (bin_dir / "sql-client.sh").write_text(FAKE_SQL_CLIENT, encoding="utf-8")
+    for arquivo in bin_dir.iterdir():
+        arquivo.chmod(0o755)
+    return bin_dir
+
+
+def _rodar_submit(tmp_path: Path, vivos: list[str]) -> list[str]:
+    bash = shutil.which("bash")
+    if not bash or not shutil.which("flock") or os.name == "nt":
+        pytest.skip("precisa de bash e flock (Linux)")
+    bin_dir = _fake_flink(tmp_path, vivos)
+    env = {
+        **os.environ,
+        "FLINK_BIN": str(bin_dir),
+        "SQL_DIR": str(SQL_DIR),
+        "SUBMIT_WORK_DIR": str(tmp_path),
+    }
+    subprocess.run(
+        [bash, str(FLINK_DIR / "submit.sh")],
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    saida = tmp_path / "submetidos"
+    if not saida.exists():
+        return []
+    return saida.read_text(encoding="utf-8").split()
+
+
+def test_submit_repoe_so_o_job_que_caiu(tmp_path):
+    submetidos = _rodar_submit(tmp_path, ["bluesky-03_jobs", "bluesky-05_terms"])
+    assert submetidos == ["bluesky-04_volume"]
+
+
+def test_submit_sobe_os_tres_com_cluster_vazio(tmp_path):
+    submetidos = _rodar_submit(tmp_path, [])
+    assert submetidos == ["bluesky-03_jobs", "bluesky-04_volume", "bluesky-05_terms"]
+
+
+def test_submit_nao_faz_nada_com_os_tres_vivos(tmp_path):
+    vivos = ["bluesky-03_jobs", "bluesky-04_volume", "bluesky-05_terms"]
+    assert _rodar_submit(tmp_path, vivos) == []
+
+
+def test_jobmanager_sobe_com_o_vigia():
+    flink = yaml.safe_load(COMPOSE_FLINK.read_text(encoding="utf-8"))
+    jm = flink["services"]["flink-jobmanager"]
+    assert jm["entrypoint"] == ["/opt/jobmanager.sh"]
+    entrada = (FLINK_DIR / "jobmanager.sh").read_text(encoding="utf-8")
+    assert "/opt/watch.sh &" in entrada
+    assert "exec /docker-entrypoint.sh jobmanager" in entrada
+    vigia = (FLINK_DIR / "watch.sh").read_text(encoding="utf-8")
+    assert "/opt/submit.sh" in vigia and "while true" in vigia
+    dockerfile = (FLINK_DIR / "Dockerfile").read_text(encoding="utf-8")
+    for nome in ("submit.sh", "watch.sh", "jobmanager.sh"):
+        assert nome in dockerfile
 
 
 def test_deploy_submete_os_jobs_e_publica_a_pagina_do_flink():

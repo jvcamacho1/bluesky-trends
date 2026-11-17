@@ -5,5 +5,5 @@ FROM flink:1.20.1-scala_2.12-java17
 
 COPY lib/*.jar /opt/flink/lib/
 COPY sql /opt/sql
-COPY submit.sh /opt/submit.sh
-RUN chmod +x /opt/submit.sh
+COPY submit.sh watch.sh jobmanager.sh /opt/
+RUN chmod +x /opt/submit.sh /opt/watch.sh /opt/jobmanager.sh

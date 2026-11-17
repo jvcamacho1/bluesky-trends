@@ -96,9 +96,11 @@ REMOTE_PATH="\$1"
 cd "\$REMOTE_PATH"
 docker compose up -d --build --remove-orphans
 docker compose ps
-# jobs do Flink: o cluster sobe vazio, quem submete e o submit.sh
+# jobs do Flink: o cluster sobe vazio e o vigia (flink/watch.sh) dentro do
+# jobmanager submete os que faltam a cada 2 minutos. Chamar o submit.sh aqui
+# so adianta a primeira rodada; o lock do script evita submissao dupla.
 docker compose exec -T flink-jobmanager /opt/submit.sh || \
-  echo "aviso: jobs do Flink nao submetidos (cluster ainda iniciando)"
+  echo "aviso: jobs do Flink nao submetidos agora; o vigia tenta de novo"
 REMOTE
 
 echo "==> pronto: https://blueskytrends.jvcamacho.dev/"
