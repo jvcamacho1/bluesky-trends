@@ -95,6 +95,14 @@ $REMOTE_ENV
 REMOTE_PATH="\$1"
 cd "\$REMOTE_PATH"
 docker compose up -d --build --remove-orphans
+# limits.xml e montado como arquivo: o rsync troca o inode e o container segue
+# lendo a versao velha, e o Compose nao recria por mudanca em bind mount.
+# Se o que o ClickHouse ve difere do disco, reinicia so ele.
+if ! docker compose exec -T clickhouse cat /etc/clickhouse-server/config.d/limits.xml \
+    | cmp -s - clickhouse/limits.xml; then
+  echo "==> limits.xml mudou; reiniciando o ClickHouse"
+  docker compose restart clickhouse
+fi
 docker compose ps
 # jobs do Flink: o cluster sobe vazio e o vigia (flink/watch.sh) dentro do
 # jobmanager submete os que faltam a cada 2 minutos. Chamar o submit.sh aqui

@@ -5,7 +5,11 @@
        max_server_memory_usage precisa ficar abaixo do limite do container,
        como pede a regra de orcamento da VPS compartilhada. -->
   <max_server_memory_usage>734003200</max_server_memory_usage>
-  <max_server_memory_usage_to_ram_ratio>0.5</max_server_memory_usage_to_ram_ratio>
+  <!-- O ClickHouse usa o MENOR entre o valor acima e ratio x memoria do
+       container. Com 0.5 o teto real era 512 MiB, e o servidor parado ja ocupa
+       ~520 MiB: toda consulta e todo INSERT falhavam com MEMORY_LIMIT_EXCEEDED.
+       0.75 x 1 GiB = 768 MiB, entao vale o limite de 700 MB acima. -->
+  <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
   <mark_cache_size>134217728</mark_cache_size>
   <uncompressed_cache_size>0</uncompressed_cache_size>
   <logger>
@@ -24,4 +28,10 @@
   <part_log remove="1"/>
   <text_log remove="1"/>
   <crash_log remove="1"/>
+  <!-- ligados por padrao no 24.8 e recriados a cada start se nao forem tirados -->
+  <error_log remove="1"/>
+  <processors_profile_log remove="1"/>
+  <blob_storage_log remove="1"/>
+  <backup_log remove="1"/>
+  <s3queue_log remove="1"/>
 </clickhouse>

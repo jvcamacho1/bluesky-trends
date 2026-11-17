@@ -132,11 +132,13 @@ def heatmap(clickhouse_url: str) -> list[list[int]] | None:
 
     Dia e hora no horario de Brasilia, como a pagina diz: a coluna e
     DateTime('UTC'), entao sem o toTimeZone o mapa ficaria 3 horas adiantado
-    e a virada do dia cairia as 21h.
+    e a virada do dia cairia as 21h. O modo 1 do toDayOfWeek ja comeca em
+    segunda = 0; subtrair 1 de novo jogava cada dia para a vespera e a segunda
+    virava -1 e sumia.
     """
     sql = f"""
     SELECT
-      toDayOfWeek(toTimeZone(window_start, '{HEATMAP_TZ}'), 1) - 1 AS dia,
+      toDayOfWeek(toTimeZone(window_start, '{HEATMAP_TZ}'), 1) AS dia,
       toHour(toTimeZone(window_start, '{HEATMAP_TZ}')) AS hora,
       round(avg(posts), 1) AS media
     FROM bluesky.volume_minutes
@@ -251,7 +253,7 @@ def main() -> None:
             _write_atomic(build(args.clickhouse), args.output)
             logger.info("history_written", extra={"output": args.output})
         except Exception as exc:  # banco subindo, tabela ainda vazia
-            logger.error("ch_export_cycle_failed", extra={"error": str(exc)})
+            logger.error("ch_export_cycle_failed: %s", exc, extra={"error": str(exc)})
         elapsed = time.monotonic() - started
         time.sleep(max(args.interval - elapsed, 10.0))
 
