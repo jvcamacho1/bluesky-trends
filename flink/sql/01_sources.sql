@@ -24,14 +24,23 @@ CREATE TABLE posts (
   -- createdAt chega em dois formatos: "2026-11-12T03:08:51.123Z" e
   -- "2026-11-12T03:08:51+00:00". O offset e cortado antes do CAST; um valor
   -- que nao converte vira NULL e o filtro de cada job descarta.
-  ts AS CAST(
-    SUBSTRING(
-      REPLACE(REPLACE(event_time, 'T', ' '), 'Z', ''),
-      1, 19
-    ) AS TIMESTAMP(3)
-  ),
-  -- 2 minutos de tolerancia: o Jetstream entrega quase em ordem, mas um post
-  -- com relogio adiantado nao pode travar a janela para sempre
+  --
+  -- createdAt vem do cliente, e ha cliente com relogio adiantado (ja chegou
+  -- post 12 h no futuro). O watermark segue o MAIOR tempo de evento visto,
+  -- entao um unico post desses empurrava o watermark para o futuro: todo
+  -- minuto real fechava antes de os posts chegarem, que eram descartados
+  -- como atrasados, e o volume_minutes ficava com buracos de 20 a 50 minutos.
+  -- Por isso o tempo de evento tem teto: se o createdAt passa do horario em
+  -- que o Jetstream recebeu o post (ingest_time) por mais de 1 minuto, vale
+  -- o ingest_time. Computed column nao pode citar outra, dai a repeticao.
+  ts AS CASE
+    WHEN CAST(SUBSTRING(REPLACE(REPLACE(event_time, 'T', ' '), 'Z', ''), 1, 19) AS TIMESTAMP(3))
+         > CAST(SUBSTRING(REPLACE(REPLACE(ingest_time, 'T', ' '), 'Z', ''), 1, 19) AS TIMESTAMP(3))
+           + INTERVAL '1' MINUTE
+    THEN CAST(SUBSTRING(REPLACE(REPLACE(ingest_time, 'T', ' '), 'Z', ''), 1, 19) AS TIMESTAMP(3))
+    ELSE CAST(SUBSTRING(REPLACE(REPLACE(event_time, 'T', ' '), 'Z', ''), 1, 19) AS TIMESTAMP(3))
+  END,
+  -- 2 minutos de tolerancia para o Jetstream entregar fora de ordem
   WATERMARK FOR ts AS ts - INTERVAL '2' MINUTE
 ) WITH (
   'connector' = 'kafka',
