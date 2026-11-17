@@ -81,7 +81,7 @@ def main() -> None:
                 args.bootstrap, args.registry, args.topic, args.limit, args.output
             )
         except Exception as exc:  # o laco nao morre por uma falha de ciclo
-            logger.error("dashboard_export_failed", extra={"error": str(exc)})
+            logger.error("dashboard_export_failed: %s", exc, extra={"error": str(exc)})
         elapsed = time.monotonic() - started
         time.sleep(max(args.interval - elapsed, 5.0))
 

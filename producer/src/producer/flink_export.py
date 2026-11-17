@@ -129,7 +129,9 @@ def main() -> None:
                 _write_atomic(view.snapshot(datetime.now(UTC)), args.output)
                 last_write = now
         except Exception as exc:  # topico ainda nao criado, broker reiniciando
-            logger.error("flink_export_cycle_failed", extra={"error": str(exc)})
+            logger.error(
+                "flink_export_cycle_failed: %s", exc, extra={"error": str(exc)}
+            )
             time.sleep(5)
 
 

@@ -169,7 +169,7 @@ def main() -> None:
             ):
                 flush()
         except Exception as exc:  # banco reiniciando, tabela ainda nao criada
-            logger.error("ch_sink_cycle_failed", extra={"error": str(exc)})
+            logger.error("ch_sink_cycle_failed: %s", exc, extra={"error": str(exc)})
             time.sleep(5)
 
 

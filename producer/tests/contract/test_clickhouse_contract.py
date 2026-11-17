@@ -41,6 +41,15 @@ def test_clickhouse_tem_limite_de_memoria_abaixo_do_container():
     assert limite < 1024 * 1024 * 1024, (
         "max_server_memory_usage precisa ficar abaixo de 1 GB"
     )
+    # o ClickHouse usa o menor entre o valor fixo e ratio x memoria do container;
+    # com 0.5 o teto real caia para 512 MiB, abaixo do que o servidor ocupa parado
+    ratio = float(
+        re.search(r"<max_server_memory_usage_to_ram_ratio>([\d.]+)<", xml).group(1)
+    )
+    assert ratio * 1024 * 1024 * 1024 >= limite, "o ratio corta o limite fixo"
+    # logs de sistema ligados por padrao estouram a memoria ao compactar
+    for log in ("metric_log", "trace_log", "error_log", "processors_profile_log"):
+        assert f'<{log} remove="1"/>' in xml, log
 
 
 def test_stack_inteira_dentro_do_orcamento():
@@ -103,7 +112,9 @@ def test_heatmap_agrupa_no_horario_de_brasilia():
         modulo.query = original
 
     sql = consultas[0]
-    assert "toDayOfWeek(toTimeZone(window_start, 'America/Sao_Paulo'), 1)" in sql
+    assert "toDayOfWeek(toTimeZone(window_start, 'America/Sao_Paulo'), 1) AS dia" in sql
+    # modo 1 ja e segunda = 0; "- 1" jogava a segunda para -1
+    assert ", 1) - 1" not in sql
     assert "toHour(toTimeZone(window_start, 'America/Sao_Paulo'))" in sql
     assert grade[0][21] == 10.0
 
