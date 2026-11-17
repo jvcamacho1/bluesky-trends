@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -32,6 +32,8 @@ TRENDING_TOPIC = "bluesky.trending.v1"
 VOLUME_TOPIC = "bluesky.volume.v1"
 BATCH_ROWS = 500
 FLUSH_S = 10.0
+# post com relogio adiantado abre janela no futuro; o ClickHouse nao guarda isso
+FUTURE_SLACK = timedelta(minutes=2)
 
 
 def parse_flink_time(value) -> str | None:
@@ -44,6 +46,13 @@ def parse_flink_time(value) -> str | None:
     except ValueError:
         return None
     return text
+
+
+def is_future(start: str, now: datetime | None = None) -> bool:
+    """Janela que comeca depois de agora + folga: veio de relogio adiantado."""
+    now = now or datetime.now(UTC)
+    moment = datetime.strptime(start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    return moment > now + FUTURE_SLACK
 
 
 def insert(
@@ -143,7 +152,7 @@ def main() -> None:
                     continue
                 start = parse_flink_time(value.get("window_start"))
                 end = parse_flink_time(value.get("window_end"))
-                if start is None or end is None:
+                if start is None or end is None or is_future(start):
                     continue
                 if msg.topic() == TRENDING_TOPIC:
                     term = value.get("term")

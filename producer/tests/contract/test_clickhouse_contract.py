@@ -82,6 +82,42 @@ def test_ch_sink_so_grava_agregados():
         assert f'"{proibido}"' not in fonte.split("INSERT INTO")[0]
 
 
+def test_ch_sink_descarta_janela_no_futuro():
+    from producer.ch_sink import is_future
+
+    agora = datetime(2026, 11, 17, 19, 0, tzinfo=UTC)
+    assert not is_future("2026-11-17 18:59:00", agora)
+    assert not is_future("2026-11-17 19:02:00", agora)  # dentro da folga
+    assert is_future("2026-11-17 19:03:00", agora)
+    assert is_future("2026-11-18 07:13:00", agora)
+
+
+def test_ch_export_ignora_janela_no_futuro():
+    # uma janela 12 h a frente nao pode virar a "ultima hora" do crescimento
+    import producer.ch_export as modulo
+
+    consultas = []
+
+    def fake_query(_url, sql):
+        consultas.append(sql)
+        return []
+
+    original = modulo.query
+    modulo.query = fake_query
+    try:
+        modulo.build("http://clickhouse:8123", datetime(2026, 11, 17, tzinfo=UTC))
+    finally:
+        modulo.query = original
+
+    filtro = "window_start <= now() + INTERVAL 2 MINUTE"
+    for sql in consultas:
+        if "count()" in sql:
+            continue  # totais contam o que o banco tem
+        assert filtro in sql, sql
+    crescimento = next(sql for sql in consultas if "AS ultima" in sql)
+    assert f"WHERE {filtro}) AS ultima" in crescimento
+
+
 def test_ch_export_le_so_agregados_e_nao_inventa_zero():
     fonte = (REPO_ROOT / "producer" / "src" / "producer" / "ch_export.py").read_text(
         encoding="utf-8"

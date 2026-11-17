@@ -36,6 +36,11 @@ HEATMAP_HOURS = 24
 HEATMAP_TZ = "America/Sao_Paulo"
 SPARK_WINDOWS = 12
 VOLUME_HOURS = 24
+# Post com relogio adiantado abre janela no futuro (ja houve janela 12 h a
+# frente). Se o max(window_start) cair la, a "ultima hora" do crescimento vira
+# uma hora quase vazia e o ranking enche de termo de robo. Toda leitura corta
+# o que comeca depois de agora + folga de 2 minutos (watermark do Flink).
+NOT_FUTURE = "window_start <= now() + INTERVAL 2 MINUTE"
 
 
 def query(clickhouse_url: str, sql: str) -> list[dict]:
@@ -73,7 +78,7 @@ def _hours_of_data(clickhouse_url: str) -> float:
     rows = query(
         clickhouse_url,
         "SELECT dateDiff('second', min(window_start), max(window_start)) AS span "
-        "FROM bluesky.trending_terms",
+        f"FROM bluesky.trending_terms WHERE {NOT_FUTURE}",
     )
     if not rows:
         return 0.0
@@ -87,10 +92,11 @@ def growth_items(clickhouse_url: str, limit: int = MAX_ITEMS) -> list[dict]:
     ultimos 7 dias + 5). O +5 e o mesmo suavizador da especificacao: sem ele,
     um termo que nunca apareceu dividiria por zero e dominaria a lista.
     """
-    sql = """
+    sql = f"""
     WITH
       now() AS agora,
-      (SELECT max(window_start) FROM bluesky.trending_terms) AS ultima
+      (SELECT max(window_start) FROM bluesky.trending_terms
+       WHERE {NOT_FUTURE}) AS ultima
     SELECT
       term,
       kind,
@@ -100,7 +106,7 @@ def growth_items(clickhouse_url: str, limit: int = MAX_ITEMS) -> list[dict]:
             AND window_start >= ultima - INTERVAL 7 DAY) AS media_7d,
       groupArrayIf(authors, window_start >= ultima - INTERVAL 60 MINUTE) AS spark
     FROM bluesky.trending_terms
-    WHERE window_start >= ultima - INTERVAL 7 DAY
+    WHERE window_start >= ultima - INTERVAL 7 DAY AND {NOT_FUTURE}
     GROUP BY term, kind
     HAVING autores_1h > 0
     ORDER BY autores_1h DESC
@@ -142,7 +148,7 @@ def heatmap(clickhouse_url: str) -> list[list[int]] | None:
       toHour(toTimeZone(window_start, '{HEATMAP_TZ}')) AS hora,
       round(avg(posts), 1) AS media
     FROM bluesky.volume_minutes
-    WHERE window_start >= now() - INTERVAL 7 DAY
+    WHERE window_start >= now() - INTERVAL 7 DAY AND {NOT_FUTURE}
     GROUP BY dia, hora
     ORDER BY dia, hora
     """
@@ -166,7 +172,7 @@ def volume_hours(clickhouse_url: str) -> list[dict]:
       toStartOfHour(window_start) AS hora,
       sum(posts) AS posts
     FROM bluesky.volume_minutes
-    WHERE window_start >= now() - INTERVAL {VOLUME_HOURS} HOUR
+    WHERE window_start >= now() - INTERVAL {VOLUME_HOURS} HOUR AND {NOT_FUTURE}
     GROUP BY hora
     ORDER BY hora
     """
