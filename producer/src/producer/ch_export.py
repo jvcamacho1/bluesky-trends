@@ -33,6 +33,7 @@ MAX_ITEMS = 10
 MIN_HISTORY_HOURS = 3
 HEATMAP_DAYS = 7
 HEATMAP_HOURS = 24
+HEATMAP_TZ = "America/Sao_Paulo"
 SPARK_WINDOWS = 12
 VOLUME_HOURS = 24
 
@@ -127,11 +128,16 @@ def growth_items(clickhouse_url: str, limit: int = MAX_ITEMS) -> list[dict]:
 
 
 def heatmap(clickhouse_url: str) -> list[list[int]] | None:
-    """Media de posts por hora, 7 linhas (segunda a domingo) por 24 colunas."""
-    sql = """
+    """Media de posts por hora, 7 linhas (segunda a domingo) por 24 colunas.
+
+    Dia e hora no horario de Brasilia, como a pagina diz: a coluna e
+    DateTime('UTC'), entao sem o toTimeZone o mapa ficaria 3 horas adiantado
+    e a virada do dia cairia as 21h.
+    """
+    sql = f"""
     SELECT
-      toDayOfWeek(window_start, 1) - 1 AS dia,
-      toHour(window_start) AS hora,
+      toDayOfWeek(toTimeZone(window_start, '{HEATMAP_TZ}'), 1) - 1 AS dia,
+      toHour(toTimeZone(window_start, '{HEATMAP_TZ}')) AS hora,
       round(avg(posts), 1) AS media
     FROM bluesky.volume_minutes
     WHERE window_start >= now() - INTERVAL 7 DAY

@@ -262,7 +262,7 @@ O serviço `flink-export` do Compose (128 MB / 0,1 CPU, sem porta) lê `bluesky.
 - **Só janela assentada.** O Flink regrava a mesma chave enquanto chegam posts daquela janela (upsert). O exportador guarda o último valor de cada chave e só usa janelas cujo fim passou de agora − 3 min (watermark de 2 min + folga).
 - **Mesmas regras do painel público.** Os três jobs descartam posts com rótulo próprio adulto (ADR-012); o exportador tira termos da lista de bloqueio, palavras vazias e pedaços de link ou de menção (o Flink tokeniza sem removê-los), e exige `FLINK_MIN_AUTHORS` autores distintos na janela (padrão 10).
 - **Lacuna é lacuna.** Minuto ou janela ausente no tópico vira `null` e a página deixa em branco.
-- **Jobs no deploy.** O `deploy.sh` chama `flink/submit.sh` depois do `docker compose up`; o script não faz nada se já há jobs rodando e resubmete quando o jobmanager foi recriado.
+- **Jobs vigiados.** O container do jobmanager entra por `flink/jobmanager.sh`, que liga o `flink/watch.sh` em segundo plano. A cada 2 minutos (`FLINK_WATCH_INTERVAL_S`) o vigia chama `flink/submit.sh`, que dá a cada job um nome fixo (`bluesky-03_jobs`, `bluesky-04_volume`, `bluesky-05_terms`) e submete só os que não estão vivos. Um restart do jobmanager ou um job que falhou volta sozinho, sem esperar o próximo deploy. Os jobs leem o Kafka com `latest-offset`, então a lacuna enquanto o job estava parado fica vazia, sem reprocessar janelas antigas. O `deploy.sh` ainda chama o `submit.sh` para adiantar a primeira rodada, e um `flock` impede submissão dupla.
 
 Contrato do `flink.json`:
 

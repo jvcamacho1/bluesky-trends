@@ -7,7 +7,8 @@ services:
       context: ./flink
     container_name: bluesky-trends-flink-jobmanager
     restart: unless-stopped
-    command: jobmanager
+    # jobmanager.sh liga o vigia (watch.sh) que resubmete job que caiu
+    entrypoint: ["/opt/jobmanager.sh"]
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -16,10 +17,13 @@ services:
     ports:
       - "127.0.0.1:8082:8081"
     environment:
+      FLINK_WATCH_INTERVAL_S: "120"
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         jobmanager.memory.process.size: 896m
         parallelism.default: 1
+        rest.address: flink-jobmanager
+        env.java.opts.client: -Xmx256m
     deploy:
       resources:
         limits:
