@@ -155,6 +155,44 @@ def test_heatmap_agrupa_no_horario_de_brasilia():
     assert grade[0][21] == 10.0
 
 
+def _crescimento(janelas: dict, linhas: list[dict]) -> list[dict]:
+    import producer.ch_export as modulo
+
+    def fake_query(_url, sql):
+        return [janelas] if "uniqExactIf" in sql else linhas
+
+    original = modulo.query
+    modulo.query = fake_query
+    try:
+        return modulo.growth_items("http://clickhouse:8123")
+    finally:
+        modulo.query = original
+
+
+def test_crescimento_compara_media_por_janela():
+    # 60 janelas na hora, 600 no resto da semana. "estavel" tem 10 autores por
+    # janela nos dois periodos: ratio 1, nao ~60 (soma da hora / uma janela).
+    janelas = {"janelas_1h": 60, "janelas_base": 600}
+    linhas = [
+        {"term": "estavel", "kind": "term", "autores_1h": 600, "autores_base": 6000},
+        {"term": "subindo", "kind": "term", "autores_1h": 900, "autores_base": 600},
+        {"term": "inedito", "kind": "term", "autores_1h": 300, "autores_base": 0},
+    ]
+    itens = {item["term"]: item for item in _crescimento(janelas, linhas)}
+    assert itens["estavel"]["ratio"] == 1.0
+    # (900/60 + 5) / (600/600 + 5) = 20 / 6
+    assert itens["subindo"]["ratio"] == round(20 / 6, 2)
+    # sem historico do termo, nao inventa crescimento
+    assert itens["inedito"]["ratio"] is None
+    assert [item["term"] for item in _crescimento(janelas, linhas)][0] == "subindo"
+
+
+def test_crescimento_sem_janelas_nao_divide_por_zero():
+    linhas = [{"term": "x", "kind": "term", "autores_1h": 5, "autores_base": 5}]
+    itens = _crescimento({}, linhas)
+    assert itens[0]["ratio"] is None
+
+
 def test_historico_json_nao_vaza_dado_bruto():
 
     def fake_query(_url, sql):
@@ -173,6 +211,8 @@ def test_historico_json_nao_vaza_dado_bruto():
                     "desde": "2026-11-12 03:00:00",
                 }
             ]
+        if "uniqExactIf" in sql:
+            return [{"janelas_1h": 60, "janelas_base": 600}]
         if "trending_terms" in sql:
             return [
                 {
@@ -180,7 +220,7 @@ def test_historico_json_nao_vaza_dado_bruto():
                     "kind": "term",
                     "autores_1h": 12,
                     "posts_1h": 20,
-                    "media_7d": 4.0,
+                    "autores_base": 40,
                     "spark": [1, 2, 3],
                 }
             ]

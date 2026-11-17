@@ -86,25 +86,38 @@ def _hours_of_data(clickhouse_url: str) -> float:
 
 
 def growth_items(clickhouse_url: str, limit: int = MAX_ITEMS) -> list[dict]:
-    """Termos ordenados por crescimento contra a media das ultimas 24 horas.
+    """Termos ordenados por crescimento contra a media dos ultimos 7 dias.
 
-    ratio = (autores na ultima hora + 5) / (media de autores na mesma hora dos
-    ultimos 7 dias + 5). O +5 e o mesmo suavizador da especificacao: sem ele,
-    um termo que nunca apareceu dividiria por zero e dominaria a lista.
+    As janelas sao HOP de 5 minutos deslizando 1 minuto: uma hora tem ~60
+    janelas. Os dois lados comparam media de autores POR JANELA:
+
+    ratio = (autores da ultima hora / janelas da ultima hora + 5)
+          / (autores do resto dos 7 dias / janelas do resto dos 7 dias + 5)
+
+    Comparar a soma da hora com a media de uma janela dava ~60x para qualquer
+    termo. A janela sem o termo conta como zero dos dois lados (divide pelo
+    numero de janelas, nao de linhas). O +5 e o suavizador da especificacao:
+    sem ele, termo raro dividiria por quase zero e dominaria a lista.
     """
-    sql = f"""
+    base = f"""
     WITH
-      now() AS agora,
       (SELECT max(window_start) FROM bluesky.trending_terms
        WHERE {NOT_FUTURE}) AS ultima
+    """
+    sql = (
+        base
+        + f"""
     SELECT
       term,
       kind,
       sumIf(authors, window_start >= ultima - INTERVAL 60 MINUTE) AS autores_1h,
       sumIf(posts, window_start >= ultima - INTERVAL 60 MINUTE) AS posts_1h,
-      avgIf(authors, window_start < ultima - INTERVAL 60 MINUTE
-            AND window_start >= ultima - INTERVAL 7 DAY) AS media_7d,
-      groupArrayIf(authors, window_start >= ultima - INTERVAL 60 MINUTE) AS spark
+      sumIf(authors, window_start < ultima - INTERVAL 60 MINUTE) AS autores_base,
+      arrayMap(
+        par -> par.2,
+        arraySort(groupArrayIf((window_start, authors),
+                               window_start >= ultima - INTERVAL 60 MINUTE))
+      ) AS spark
     FROM bluesky.trending_terms
     WHERE window_start >= ultima - INTERVAL 7 DAY AND {NOT_FUTURE}
     GROUP BY term, kind
@@ -112,12 +125,33 @@ def growth_items(clickhouse_url: str, limit: int = MAX_ITEMS) -> list[dict]:
     ORDER BY autores_1h DESC
     LIMIT 200
     """
+    )
+    janelas_sql = (
+        base
+        + f"""
+    SELECT
+      uniqExactIf(window_start, window_start >= ultima - INTERVAL 60 MINUTE)
+        AS janelas_1h,
+      uniqExactIf(window_start, window_start < ultima - INTERVAL 60 MINUTE)
+        AS janelas_base
+    FROM bluesky.trending_terms
+    WHERE window_start >= ultima - INTERVAL 7 DAY AND {NOT_FUTURE}
+    """
+    )
     rows = query(clickhouse_url, sql)
+    janelas = query(clickhouse_url, janelas_sql)
+    janelas = janelas[0] if janelas else {}
+    janelas_1h = int(janelas.get("janelas_1h") or 0)
+    janelas_base = int(janelas.get("janelas_base") or 0)
     items = []
     for row in rows:
         autores = int(row.get("autores_1h") or 0)
-        media = float(row.get("media_7d") or 0)
-        ratio = round((autores + 5) / (media + 5), 2) if media else None
+        autores_base = int(row.get("autores_base") or 0)
+        ratio = None
+        if janelas_1h and janelas_base and autores_base:
+            media_1h = autores / janelas_1h
+            media_base = autores_base / janelas_base
+            ratio = round((media_1h + 5) / (media_base + 5), 2)
         spark = row.get("spark") or []
         items.append(
             {
