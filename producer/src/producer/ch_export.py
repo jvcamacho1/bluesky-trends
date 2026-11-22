@@ -219,20 +219,38 @@ def volume_hours(clickhouse_url: str) -> list[dict]:
 
 
 def totals(clickhouse_url: str) -> dict:
-    sql = """
+    # latest_window e a janela mais recente da tabela mais atrasada. A pagina
+    # usa para avisar que o banco parou de receber dados: o generated_at
+    # sozinho continua novo, porque este servico regrava o JSON a cada minuto
+    # mesmo com o ch-sink parado.
+    sql = f"""
     SELECT
       (SELECT count() FROM bluesky.trending_terms) AS linhas_trending,
       (SELECT count() FROM bluesky.volume_minutes) AS linhas_volume,
       (SELECT sum(posts) FROM bluesky.volume_minutes) AS posts_total,
-      (SELECT min(window_start) FROM bluesky.volume_minutes) AS desde
+      (SELECT min(window_start) FROM bluesky.volume_minutes) AS desde,
+      (SELECT max(window_start) FROM bluesky.volume_minutes
+         WHERE {NOT_FUTURE}) AS ultima_volume,
+      (SELECT max(window_start) FROM bluesky.trending_terms
+         WHERE {NOT_FUTURE}) AS ultima_trending
     """
     rows = query(clickhouse_url, sql)
     row = rows[0] if rows else {}
+    ultimas = [
+        moment
+        for moment in (
+            _iso(row.get("ultima_volume")),
+            _iso(row.get("ultima_trending")),
+        )
+        # tabela vazia: max() do ClickHouse devolve 1970-01-01, nao NULL
+        if moment and not moment.startswith("1970-")
+    ]
     return {
         "rows_trending": int(row.get("linhas_trending") or 0),
         "rows_volume": int(row.get("linhas_volume") or 0),
         "posts_total": int(row.get("posts_total") or 0),
         "since": _iso(row.get("desde")),
+        "latest_window": min(ultimas) if ultimas else None,
     }
 
 

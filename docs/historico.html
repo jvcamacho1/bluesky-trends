@@ -436,6 +436,7 @@ footer p { max-width: 80ch; margin: 0 0 10px; }
   var DATA_URL = "/historico.json";
   var REFRESH_MS = 60000;
   var STALE_S = 600;
+  var DATA_STALE_S = 900;
   var SVG = "http://www.w3.org/2000/svg";
   var $ = function (id) { return document.getElementById(id); };
   var nf = new Intl.NumberFormat("pt-BR");
@@ -457,6 +458,8 @@ footer p { max-width: 80ch; margin: 0 0 10px; }
   function fmt(n) { return n == null ? "—" : nf.format(n); }
   function dec(n) { return n == null ? "—" : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(n); }
   function time(iso) { return iso ? hm.format(new Date(iso)) : "—"; }
+  var dhm = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  function dayTime(iso) { return iso ? dhm.format(new Date(iso)) : "—"; }
 
   $("theme-toggle").addEventListener("click", function () {
     var d = document.documentElement;
@@ -474,6 +477,15 @@ footer p { max-width: 80ch; margin: 0 0 10px; }
       return;
     }
     var idade = (Date.now() - gerado.getTime()) / 1000;
+    // JSON novo nao basta: o exportador regrava a cada minuto mesmo quando o
+    // banco parou de receber janelas (aconteceu de 18 a 22/11/2026)
+    var t = data.totals || {};
+    var ultima = t.latest_window ? new Date(t.latest_window) : null;
+    if (ultima && !isNaN(ultima) && (gerado.getTime() - ultima.getTime()) / 1000 > DATA_STALE_S) {
+      badge.className = "badge stale";
+      badge.textContent = "dados parados desde " + dayTime(t.latest_window);
+      return;
+    }
     if (idade > STALE_S) {
       badge.className = "badge stale";
       badge.textContent = "desatualizado · " + Math.round(idade / 60) + " min";

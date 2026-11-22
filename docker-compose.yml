@@ -196,11 +196,15 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CLICKHOUSE_URL: http://clickhouse:8123
       CH_MIN_AUTHORS: "1"
+      # sem flush por 10 min o processo sai e o restart acima sobe outro
+      CH_SINK_STALL_S: "600"
+    # 5% de um nucleo era apertado para o lote de trending (milhares de termos
+    # por minuto) mais as threads do cliente do Kafka; 25% cabe no orcamento.
     deploy:
       resources:
         limits:
           memory: 128m
-          cpus: "0.05"
+          cpus: "0.25"
 
   # Le as janelas do ClickHouse e regrava historico.json a cada minuto.
   # So SELECT: quem escreve no banco e o Flink.
