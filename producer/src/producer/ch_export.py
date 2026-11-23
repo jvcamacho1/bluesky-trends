@@ -44,6 +44,12 @@ NOT_FUTURE = "window_start <= now() + INTERVAL 2 MINUTE"
 # E o contrario: post com createdAt de 2024 abre janela no passado, e o
 # min(window_start) virava 19 mil horas de historico. Corte no TTL de cada
 # tabela (clickhouse/init.sql), ate o TTL limpar a linha.
+# O crescimento so avalia os termos mais citados da ultima hora. Agrupar os
+# 7 dias inteiros montava uma tabela com todos os termos da semana (327 mil
+# em 23/11/2026, 12,5 milhoes de linhas) e passava do teto de 700 MB do
+# ClickHouse: o historico.json parou de ser gerado. Os candidatos saem da
+# ultima hora (~11 mil termos) e so o historico deles entra na soma.
+GROWTH_CANDIDATES = 200
 NOT_EXPIRED_TRENDING = "window_start >= now() - INTERVAL 7 DAY"
 NOT_EXPIRED_VOLUME = "window_start >= now() - INTERVAL 30 DAY"
 
@@ -53,7 +59,8 @@ def query(clickhouse_url: str, sql: str) -> list[dict]:
     parametros = urlencode({"query": sql + " FORMAT JSONEachRow"})
     url = f"{clickhouse_url.rstrip('/')}/?{parametros}"
     request = Request(url, headers={"Accept": "application/json"})
-    with urlopen(request, timeout=20) as response:  # noqa: S310 - url interna
+    # o crescimento varre 7 dias; com o banco ocupado ja levou 15 s
+    with urlopen(request, timeout=45) as response:  # noqa: S310 - url interna
         body = response.read().decode("utf-8")
     rows = []
     for line in body.splitlines():
@@ -125,10 +132,17 @@ def growth_items(clickhouse_url: str, limit: int = MAX_ITEMS) -> list[dict]:
       ) AS spark
     FROM bluesky.trending_terms
     WHERE window_start >= ultima - INTERVAL 7 DAY AND {NOT_FUTURE}
+      AND (term, kind) IN (
+        SELECT term, kind
+        FROM bluesky.trending_terms
+        WHERE window_start >= ultima - INTERVAL 60 MINUTE AND {NOT_FUTURE}
+        GROUP BY term, kind
+        ORDER BY sum(authors) DESC
+        LIMIT {GROWTH_CANDIDATES}
+      )
     GROUP BY term, kind
     HAVING autores_1h > 0
     ORDER BY autores_1h DESC
-    LIMIT 200
     """
     )
     janelas_sql = (

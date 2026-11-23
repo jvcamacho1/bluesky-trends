@@ -400,3 +400,31 @@ def test_horas_de_historico_ignoram_janela_vencida():
 
     _, sql = _totals({})
     assert "window_start >= now() - INTERVAL 30 DAY) AS desde" in " ".join(sql.split())
+
+
+def test_crescimento_so_agrupa_os_termos_da_ultima_hora():
+    # agrupar todos os termos dos 7 dias passou do teto de memoria em 23/11/2026
+    import producer.ch_export as modulo
+
+    consultas = []
+
+    def fake_query(_url, sql):
+        consultas.append(sql)
+        return []
+
+    original = modulo.query
+    modulo.query = fake_query
+    try:
+        modulo.growth_items("http://clickhouse:8123")
+    finally:
+        modulo.query = original
+
+    crescimento = " ".join(
+        next(sql for sql in consultas if "autores_1h" in sql).split()
+    )
+    assert "AND (term, kind) IN ( SELECT term, kind FROM bluesky.trending_terms" in (
+        crescimento
+    )
+    assert "window_start >= ultima - INTERVAL 60 MINUTE AND" in crescimento
+    assert f"LIMIT {modulo.GROWTH_CANDIDATES} )" in crescimento
+    assert modulo.GROWTH_CANDIDATES >= modulo.MAX_ITEMS
