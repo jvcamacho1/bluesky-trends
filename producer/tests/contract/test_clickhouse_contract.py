@@ -361,3 +361,42 @@ def test_pagina_avisa_quando_o_banco_para_de_receber_janelas():
     html = PAGE.read_text(encoding="utf-8")
     assert "latest_window" in html
     assert "dados parados desde" in html
+
+
+def test_ch_sink_descarta_janela_mais_velha_que_o_ttl():
+    # createdAt de 2024 abria uma particao por dia e levou o ClickHouse ao
+    # teto de memoria em 23/11/2026
+    from producer.ch_sink import RETENTION, TRENDING_TOPIC, VOLUME_TOPIC, is_expired
+
+    agora = datetime(2026, 11, 23, 1, 0, tzinfo=UTC)
+    assert is_expired("2024-09-08 17:16:00", TRENDING_TOPIC, agora)
+    assert is_expired("2026-11-16 00:59:00", TRENDING_TOPIC, agora)
+    assert not is_expired("2026-11-16 01:01:00", TRENDING_TOPIC, agora)
+    # volume guarda 30 dias
+    assert not is_expired("2026-11-01 00:00:00", VOLUME_TOPIC, agora)
+    assert is_expired("2026-10-20 00:00:00", VOLUME_TOPIC, agora)
+    # a retencao do sink e a mesma do TTL das tabelas
+    sql = INIT_SQL.read_text(encoding="utf-8")
+    assert f"INTERVAL {RETENTION[TRENDING_TOPIC].days} DAY" in sql
+    assert f"INTERVAL {RETENTION[VOLUME_TOPIC].days} DAY" in sql
+
+
+def test_horas_de_historico_ignoram_janela_vencida():
+    import producer.ch_export as modulo
+
+    consultas = []
+
+    def fake_query(_url, sql):
+        consultas.append(sql)
+        return [{"span": 3600}]
+
+    original = modulo.query
+    modulo.query = fake_query
+    try:
+        assert modulo._hours_of_data("http://clickhouse:8123") == 1.0
+    finally:
+        modulo.query = original
+    assert "window_start >= now() - INTERVAL 7 DAY" in consultas[0]
+
+    _, sql = _totals({})
+    assert "window_start >= now() - INTERVAL 30 DAY) AS desde" in " ".join(sql.split())
