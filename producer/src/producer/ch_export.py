@@ -41,6 +41,11 @@ VOLUME_HOURS = 24
 # uma hora quase vazia e o ranking enche de termo de robo. Toda leitura corta
 # o que comeca depois de agora + folga de 2 minutos (watermark do Flink).
 NOT_FUTURE = "window_start <= now() + INTERVAL 2 MINUTE"
+# E o contrario: post com createdAt de 2024 abre janela no passado, e o
+# min(window_start) virava 19 mil horas de historico. Corte no TTL de cada
+# tabela (clickhouse/init.sql), ate o TTL limpar a linha.
+NOT_EXPIRED_TRENDING = "window_start >= now() - INTERVAL 7 DAY"
+NOT_EXPIRED_VOLUME = "window_start >= now() - INTERVAL 30 DAY"
 
 
 def query(clickhouse_url: str, sql: str) -> list[dict]:
@@ -78,7 +83,7 @@ def _hours_of_data(clickhouse_url: str) -> float:
     rows = query(
         clickhouse_url,
         "SELECT dateDiff('second', min(window_start), max(window_start)) AS span "
-        f"FROM bluesky.trending_terms WHERE {NOT_FUTURE}",
+        f"FROM bluesky.trending_terms WHERE {NOT_FUTURE} AND {NOT_EXPIRED_TRENDING}",
     )
     if not rows:
         return 0.0
@@ -228,7 +233,8 @@ def totals(clickhouse_url: str) -> dict:
       (SELECT count() FROM bluesky.trending_terms) AS linhas_trending,
       (SELECT count() FROM bluesky.volume_minutes) AS linhas_volume,
       (SELECT sum(posts) FROM bluesky.volume_minutes) AS posts_total,
-      (SELECT min(window_start) FROM bluesky.volume_minutes) AS desde,
+      (SELECT min(window_start) FROM bluesky.volume_minutes
+         WHERE {NOT_EXPIRED_VOLUME}) AS desde,
       (SELECT max(window_start) FROM bluesky.volume_minutes
          WHERE {NOT_FUTURE}) AS ultima_volume,
       (SELECT max(window_start) FROM bluesky.trending_terms

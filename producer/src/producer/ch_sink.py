@@ -39,6 +39,11 @@ BATCH_ROWS = 500
 FLUSH_S = 10.0
 # post com relogio adiantado abre janela no futuro; o ClickHouse nao guarda isso
 FUTURE_SLACK = timedelta(minutes=2)
+# mesmo TTL do clickhouse/init.sql: janela mais velha ja nasceria vencida
+RETENTION = {
+    TRENDING_TOPIC: timedelta(days=7),
+    VOLUME_TOPIC: timedelta(days=30),
+}
 # O Flink fecha uma janela de volume por minuto, entao ha flush a cada minuto.
 # Dez minutos sem nenhum e travamento, nao calmaria.
 STALL_S = 600.0
@@ -98,6 +103,21 @@ def is_future(start: str, now: datetime | None = None) -> bool:
     now = now or datetime.now(UTC)
     moment = datetime.strptime(start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
     return moment > now + FUTURE_SLACK
+
+
+def is_expired(start: str, topic: str, now: datetime | None = None) -> bool:
+    """Janela mais velha que o TTL da tabela de destino.
+
+    Post com createdAt antigo (ja chegou de 2024) abre janela no passado quando
+    o watermark do Flink ainda nao andou, como logo depois de resubmeter o job.
+    A tabela e particionada por dia: cada data antiga vira uma particao nova, e
+    em 23/11/2026 foram 375 particoes e 857 parts para 62 mil linhas, que
+    levaram o ClickHouse ao teto de memoria. O TTL apagaria depois, mas a
+    limpeza roda em merge e o merge nao tinha memoria.
+    """
+    now = now or datetime.now(UTC)
+    moment = datetime.strptime(start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    return moment < now - RETENTION[topic]
 
 
 def insert(
@@ -211,6 +231,8 @@ def main() -> None:
                 start = parse_flink_time(value.get("window_start"))
                 end = parse_flink_time(value.get("window_end"))
                 if start is None or end is None or is_future(start):
+                    continue
+                if is_expired(start, msg.topic()):
                     continue
                 if msg.topic() == TRENDING_TOPIC:
                     term = value.get("term")
