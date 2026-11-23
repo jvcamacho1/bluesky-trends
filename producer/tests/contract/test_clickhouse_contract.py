@@ -285,3 +285,79 @@ def test_deploy_publica_as_tres_paginas():
     script = (REPO_ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
     for pagina in ("public.html", "flink.html", "historico.html"):
         assert pagina in script
+
+
+def test_ch_sink_vigia_detecta_travamento():
+    # em 18/11/2026 o consumidor perdeu o Kafka e ficou 4 dias vivo sem gravar
+    from producer.ch_sink import STALL_S, Watchdog
+
+    agora = [1000.0]
+    vigia = Watchdog(stall_s=600, clock=lambda: agora[0])
+    agora[0] += 599
+    assert not vigia.stalled()
+    agora[0] += 2
+    assert vigia.stalled()
+    vigia.beat()
+    assert not vigia.stalled()
+    assert STALL_S <= 900, "o painel avisa com 15 min; o vigia age antes"
+
+
+def test_ch_sink_nao_engole_erro_do_kafka_e_sai_quando_trava():
+    fonte = (REPO_ROOT / "producer" / "src" / "producer" / "ch_sink.py").read_text(
+        encoding="utf-8"
+    )
+    assert "if msg.error():\n                    continue" not in fonte
+    assert 'logger.error("kafka_error' in fonte
+    # sys.exit numa thread nao derruba o processo; o restart do Docker precisa
+    # que o processo inteiro saia
+    assert "os._exit(1)" in fonte
+    assert "watchdog.beat()" in fonte
+    compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    servico = compose["services"]["ch-sink"]
+    assert servico["restart"] == "unless-stopped"
+    assert float(servico["deploy"]["resources"]["limits"]["cpus"]) >= 0.25
+
+
+def _totals(linha: dict) -> dict:
+    import producer.ch_export as modulo
+
+    consultas = []
+
+    def fake_query(_url, sql):
+        consultas.append(sql)
+        return [linha]
+
+    original = modulo.query
+    modulo.query = fake_query
+    try:
+        return modulo.totals("http://clickhouse:8123"), consultas[0]
+    finally:
+        modulo.query = original
+
+
+def test_totais_trazem_a_janela_mais_recente_da_tabela_mais_atrasada():
+    totais, sql = _totals(
+        {
+            "ultima_volume": "2026-11-18 21:17:00",
+            "ultima_trending": "2026-11-18 21:21:00",
+        }
+    )
+    assert totais["latest_window"] == "2026-11-18T21:17:00Z"
+    assert sql.count("window_start <= now() + INTERVAL 2 MINUTE") == 2
+
+
+def test_totais_com_tabela_vazia_nao_inventam_data():
+    # max() de tabela vazia no ClickHouse e 1970-01-01, nao NULL
+    totais, _ = _totals(
+        {
+            "ultima_volume": "1970-01-01 00:00:00",
+            "ultima_trending": "1970-01-01 00:00:00",
+        }
+    )
+    assert totais["latest_window"] is None
+
+
+def test_pagina_avisa_quando_o_banco_para_de_receber_janelas():
+    html = PAGE.read_text(encoding="utf-8")
+    assert "latest_window" in html
+    assert "dados parados desde" in html

@@ -9,12 +9,17 @@ Flink continua sendo quem calcula a janela.
 - Grava em bluesky.trending_terms e bluesky.volume_minutes.
 - Deduplicacao pelo ReplacingMergeTree: reenviar a mesma janela substitui a linha.
 - Commit de offset so depois do INSERT dar certo, para nao perder janela.
+- Vigia: sem nenhum flush por STALL_S, o processo sai com codigo 1 e o Docker
+  (restart: unless-stopped) sobe outro. Em 18/11/2026 o consumidor perdeu a
+  conexao com o Kafka e ficou 4 dias vivo sem gravar nada, porque o erro era
+  engolido e o processo nunca caia.
 """
 
 import argparse
 import json
 import logging
 import os
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
@@ -34,6 +39,46 @@ BATCH_ROWS = 500
 FLUSH_S = 10.0
 # post com relogio adiantado abre janela no futuro; o ClickHouse nao guarda isso
 FUTURE_SLACK = timedelta(minutes=2)
+# O Flink fecha uma janela de volume por minuto, entao ha flush a cada minuto.
+# Dez minutos sem nenhum e travamento, nao calmaria.
+STALL_S = 600.0
+WATCHDOG_CHECK_S = 30.0
+# erro repetido do Kafka (broker fora) nao pode inundar o log
+ERROR_LOG_EVERY_S = 60.0
+
+
+class Watchdog:
+    """Marca o ultimo flush e diz se o servico parou de gravar.
+
+    A checagem roda numa thread propria: se o laco principal travar dentro de
+    uma chamada (commit, consume), so outra thread consegue perceber.
+    """
+
+    def __init__(self, stall_s: float = STALL_S, clock=time.monotonic) -> None:
+        self.stall_s = stall_s
+        self.clock = clock
+        self.last_beat = clock()
+
+    def beat(self) -> None:
+        self.last_beat = self.clock()
+
+    def idle_s(self) -> float:
+        return self.clock() - self.last_beat
+
+    def stalled(self) -> bool:
+        return self.idle_s() > self.stall_s
+
+
+def _watch(watchdog: Watchdog) -> None:
+    while True:
+        time.sleep(WATCHDOG_CHECK_S)
+        if watchdog.stalled():
+            logger.error(
+                "ch_sink_stalled: %.0f s sem gravar, saindo para o Docker reiniciar",
+                watchdog.idle_s(),
+            )
+            logging.shutdown()
+            os._exit(1)  # sys.exit numa thread nao derruba o processo
 
 
 def parse_flink_time(value) -> str | None:
@@ -100,7 +145,16 @@ def main() -> None:
     parser.add_argument(
         "--min-authors", type=int, default=int(os.environ.get("CH_MIN_AUTHORS", "1"))
     )
+    parser.add_argument(
+        "--stall-s",
+        type=float,
+        default=float(os.environ.get("CH_SINK_STALL_S", str(STALL_S))),
+    )
     args = parser.parse_args()
+
+    watchdog = Watchdog(args.stall_s)
+    threading.Thread(target=_watch, args=(watchdog,), daemon=True).start()
+    last_error_log = 0.0
 
     consumer = Consumer(
         {
@@ -141,11 +195,15 @@ def main() -> None:
             volume.clear()
         consumer.commit(asynchronous=False)
         last_flush = time.monotonic()
+        watchdog.beat()
 
     while True:
         try:
             for msg in consumer.consume(num_messages=500, timeout=1.0):
                 if msg.error():
+                    if time.monotonic() - last_error_log >= ERROR_LOG_EVERY_S:
+                        logger.error("kafka_error: %s", msg.error())
+                        last_error_log = time.monotonic()
                     continue
                 value = decode(msg.value())
                 if not value:
